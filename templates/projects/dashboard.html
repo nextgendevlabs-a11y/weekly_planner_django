@@ -45,6 +45,24 @@
         {% endif %}
       </section>
 
+      {% if team_submission_progress %}
+        <section class="status-section" aria-labelledby="team-submission-progress-heading">
+          <h2 id="team-submission-progress-heading">Team submission progress</h2>
+          <ul class="submission-status-list">
+            {% for row in team_submission_progress %}
+              <li>
+                <span>{{ row.user_label }}</span>
+                {% if row.has_submitted_feedback %}
+                  <strong>Submitted</strong>
+                {% else %}
+                  <strong>Not submitted</strong>
+                {% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </section>
+      {% endif %}
+
       <section class="status-section" aria-labelledby="retrospective-entry-heading">
         <h2 id="retrospective-entry-heading">Retrospective</h2>
         <p class="status-note">No retrospective is ready to open yet.</p>

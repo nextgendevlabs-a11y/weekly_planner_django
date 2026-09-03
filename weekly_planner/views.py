@@ -16,6 +16,7 @@ from projects.forms import FeedbackCardForm, FeedbackCycleCreateForm
 from projects.models import FeedbackCard, FeedbackCycle, Project
 from projects.permissions import can_facilitate_project, facilitatable_projects_for
 from projects.permissions import viewable_projects_for
+from projects.submission_progress import submission_progress_for
 
 
 class HomeView(TemplateView):
@@ -68,17 +69,22 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
         )
         collecting_cycle = None
         has_submitted_feedback = False
+        team_submission_progress = None
+        can_facilitate = can_facilitate_project(self.request.user, self.object)
         if active_cycle and active_cycle.status == FeedbackCycle.Status.COLLECTING_FEEDBACK:
             collecting_cycle = active_cycle
             has_submitted_feedback = active_cycle.feedback_cards.filter(
                 author=self.request.user
             ).exists()
+            if can_facilitate:
+                team_submission_progress = submission_progress_for(active_cycle)
 
         context["active_cycle"] = active_cycle
         context["collecting_cycle"] = collecting_cycle
         context["has_submitted_feedback"] = has_submitted_feedback
+        context["team_submission_progress"] = team_submission_progress
         context["can_create_feedback_cycle"] = (
-            active_cycle is None and can_facilitate_project(self.request.user, self.object)
+            active_cycle is None and can_facilitate
         )
         return context
 
