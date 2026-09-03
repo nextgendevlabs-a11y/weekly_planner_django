@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Sign In - Weekly Planner{% endblock %}
+
+{% block content %}
+  <section class="form-panel" aria-labelledby="login-heading">
+    <h1 id="login-heading">Sign in</h1>
+    <p>Return to your team retrospective workspace.</p>
+
+    <form method="post" novalidate>
+      {% csrf_token %}
+      {% if next %}
+        <input type="hidden" name="next" value="{{ next }}">
+      {% endif %}
+      {% if form.non_field_errors %}
+        {{ form.non_field_errors }}
+      {% endif %}
+
+      <div class="form-fields">
+        {% for field in form %}
+          <div class="field">
+            {{ field.label_tag }}
+            {{ field }}
+            {{ field.errors }}
+          </div>
+        {% endfor %}
+      </div>
+
+      <button class="button" type="submit">Sign in</button>
+    </form>
+  </section>
+{% endblock %}

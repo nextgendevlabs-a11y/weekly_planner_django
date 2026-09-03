@@ -3,13 +3,22 @@
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
+from django.contrib.auth.views import LoginView, LogoutView
 from django.urls import path
 
-from weekly_planner.views import HomeView
+from weekly_planner.views import HomeView, ProjectsView, SignUpView
 
 
 urlpatterns = [
     path("", HomeView.as_view(), name="home"),
+    path("accounts/signup/", SignUpView.as_view(), name="signup"),
+    path(
+        "accounts/login/",
+        LoginView.as_view(template_name="registration/login.html"),
+        name="login",
+    ),
+    path("accounts/logout/", LogoutView.as_view(), name="logout"),
+    path("projects/", ProjectsView.as_view(), name="projects"),
     path("admin/", admin.site.urls),
 ]
 

@@ -2,11 +2,12 @@ import importlib
 from html.parser import HTMLParser
 
 from django.contrib import messages
+from django.contrib.auth.views import LoginView, LogoutView
 from django.test import override_settings
 from django.urls import path, reverse
 
 from weekly_planner import urls as project_urls
-from weekly_planner.views import HomeView
+from weekly_planner.views import HomeView, ProjectsView, SignUpView
 
 
 def message_home_view(request):
@@ -16,6 +17,14 @@ def message_home_view(request):
 
 urlpatterns = [
     path("", HomeView.as_view(), name="home"),
+    path("accounts/signup/", SignUpView.as_view(), name="signup"),
+    path(
+        "accounts/login/",
+        LoginView.as_view(template_name="registration/login.html"),
+        name="login",
+    ),
+    path("accounts/logout/", LogoutView.as_view(), name="logout"),
+    path("projects/", ProjectsView.as_view(), name="projects"),
     path("message-home/", message_home_view, name="message_home"),
 ]
 
@@ -63,7 +72,7 @@ def test_navigation_links_only_to_implemented_destinations(client):
     parser.feed(response.content.decode())
 
     assert parser.hrefs
-    assert set(parser.hrefs) == {"/"}
+    assert set(parser.hrefs) == {"/", "/accounts/login/", "/accounts/signup/"}
 
 
 @override_settings(ROOT_URLCONF=__name__)

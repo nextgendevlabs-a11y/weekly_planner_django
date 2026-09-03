@@ -170,3 +170,7 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = env_positive_int(
 )
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+LOGIN_URL = "/accounts/login/"
+LOGIN_REDIRECT_URL = "/projects/"
+LOGOUT_REDIRECT_URL = "/"

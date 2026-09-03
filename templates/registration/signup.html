@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Create Account - Weekly Planner{% endblock %}
+
+{% block content %}
+  <section class="form-panel" aria-labelledby="signup-heading">
+    <h1 id="signup-heading">Create account</h1>
+    <p>Start a workspace for weekly retrospective feedback and follow-through.</p>
+
+    <form method="post" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        {{ form.non_field_errors }}
+      {% endif %}
+
+      <div class="form-fields">
+        {% for field in form %}
+          <div class="field">
+            {{ field.label_tag }}
+            {{ field }}
+            {% if field.help_text %}
+              <div class="helptext">{{ field.help_text }}</div>
+            {% endif %}
+            {{ field.errors }}
+          </div>
+        {% endfor %}
+      </div>
+
+      <button class="button" type="submit">Create account</button>
+    </form>
+  </section>
+{% endblock %}
