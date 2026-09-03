@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Create Feedback Cycle - Weekly Planner{% endblock %}
+
+{% block content %}
+  <section class="form-panel" aria-labelledby="cycle-create-heading">
+    <h1 id="cycle-create-heading">Create feedback cycle</h1>
+    <p>Start the next weekly Start, Stop, and Continue collection for {{ project.name }}.</p>
+
+    <form method="post" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        {{ form.non_field_errors }}
+      {% endif %}
+
+      <div class="form-fields">
+        {% for field in form %}
+          <div class="field">
+            {{ field.label_tag }}
+            {{ field }}
+            {% if field.help_text %}
+              <div class="helptext">{{ field.help_text }}</div>
+            {% endif %}
+            {{ field.errors }}
+          </div>
+        {% endfor %}
+      </div>
+
+      <button class="button" type="submit">Create feedback cycle</button>
+    </form>
+  </section>
+{% endblock %}

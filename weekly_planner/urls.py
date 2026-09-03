@@ -6,7 +6,13 @@ from django.contrib import admin
 from django.contrib.auth.views import LoginView, LogoutView
 from django.urls import path
 
-from weekly_planner.views import HomeView, ProjectDashboardView, ProjectsView, SignUpView
+from weekly_planner.views import (
+    FeedbackCycleCreateView,
+    HomeView,
+    ProjectDashboardView,
+    ProjectsView,
+    SignUpView,
+)
 
 
 urlpatterns = [
@@ -23,6 +29,11 @@ urlpatterns = [
         "projects/<int:project_id>/",
         ProjectDashboardView.as_view(),
         name="project_dashboard",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/new/",
+        FeedbackCycleCreateView.as_view(),
+        name="feedback_cycle_create",
     ),
     path("admin/", admin.site.urls),
 ]

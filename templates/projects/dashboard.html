@@ -12,7 +12,19 @@
     <div class="status-grid" aria-label="Project retrospective status">
       <section class="status-section" aria-labelledby="current-cycle-heading">
         <h2 id="current-cycle-heading">Current feedback cycle</h2>
-        <p class="status-note">No feedback cycle has been started for this project yet.</p>
+        {% if active_cycle %}
+          <p><strong>{{ active_cycle.label }}</strong></p>
+          <p class="status-note">{{ active_cycle.get_status_display }}</p>
+        {% else %}
+          <p class="status-note">No feedback cycle has been started for this project yet.</p>
+          {% if can_create_feedback_cycle %}
+            <p class="section-action">
+              <a class="button" href="{% url 'feedback_cycle_create' project_id=project.pk %}">
+                Create feedback cycle
+              </a>
+            </p>
+          {% endif %}
+        {% endif %}
       </section>
 
       <section class="status-section" aria-labelledby="submission-status-heading">

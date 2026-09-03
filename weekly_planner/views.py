@@ -3,12 +3,16 @@
 from django.contrib.auth import login
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.shortcuts import get_object_or_404
+from django.urls import reverse
 from django.urls import reverse_lazy
 from django.views.generic import DetailView
 from django.views.generic import FormView
 from django.views.generic import TemplateView
 
-from projects.models import Project
+from projects.forms import FeedbackCycleCreateForm
+from projects.models import FeedbackCycle, Project
+from projects.permissions import can_facilitate_project, facilitatable_projects_for
 from projects.permissions import viewable_projects_for
 
 
@@ -52,3 +56,52 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
 
     def get_queryset(self):
         return viewable_projects_for(self.request.user)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        active_cycle = (
+            self.object.feedback_cycles.exclude(status=FeedbackCycle.Status.COMPLETED)
+            .order_by("-opens_at", "-id")
+            .first()
+        )
+        context["active_cycle"] = active_cycle
+        context["can_create_feedback_cycle"] = (
+            active_cycle is None and can_facilitate_project(self.request.user, self.object)
+        )
+        return context
+
+
+class FeedbackCycleCreateView(LoginRequiredMixin, FormView):
+    """Facilitator-only form for starting a project's weekly feedback cycle."""
+
+    form_class = FeedbackCycleCreateForm
+    template_name = "projects/feedback_cycle_form.html"
+
+    def get_project(self):
+        if not hasattr(self, "_project"):
+            self._project = get_object_or_404(
+                facilitatable_projects_for(self.request.user),
+                pk=self.kwargs["project_id"],
+            )
+        return self._project
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["project"] = self.get_project()
+        return context
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["project"] = self.get_project()
+        kwargs["facilitator"] = self.request.user
+        return kwargs
+
+    def form_valid(self, form):
+        form.save()
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse(
+            "project_dashboard",
+            kwargs={"project_id": self.get_project().pk},
+        )
