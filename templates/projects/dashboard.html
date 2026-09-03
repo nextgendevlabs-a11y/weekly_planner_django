@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}{{ project.name }} - Weekly Planner{% endblock %}
+
+{% block content %}
+  <section class="stack" aria-labelledby="project-heading">
+    <div class="page-heading">
+      <h1 id="project-heading">{{ project.name }}</h1>
+      <p>Use this space to follow the weekly retrospective from preparation to follow-through.</p>
+    </div>
+
+    <div class="status-grid" aria-label="Project retrospective status">
+      <section class="status-section" aria-labelledby="current-cycle-heading">
+        <h2 id="current-cycle-heading">Current feedback cycle</h2>
+        <p class="status-note">No feedback cycle has been started for this project yet.</p>
+      </section>
+
+      <section class="status-section" aria-labelledby="submission-status-heading">
+        <h2 id="submission-status-heading">Your submission status</h2>
+        <p class="status-note">There is no open Start, Stop, and Continue submission yet.</p>
+      </section>
+
+      <section class="status-section" aria-labelledby="retrospective-entry-heading">
+        <h2 id="retrospective-entry-heading">Retrospective</h2>
+        <p class="status-note">No retrospective is ready to open yet.</p>
+      </section>
+
+      <section class="status-section" aria-labelledby="previous-retrospectives-heading">
+        <h2 id="previous-retrospectives-heading">Previous retrospectives</h2>
+        <p class="status-note">No completed retrospectives yet.</p>
+      </section>
+
+      <section class="status-section" aria-labelledby="open-actions-heading">
+        <h2 id="open-actions-heading">Open action items</h2>
+        <p class="status-note">No open action items yet.</p>
+      </section>
+    </div>
+  </section>
+{% endblock %}

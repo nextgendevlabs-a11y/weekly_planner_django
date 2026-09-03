@@ -4,8 +4,12 @@ from django.contrib.auth import login
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse_lazy
+from django.views.generic import DetailView
 from django.views.generic import FormView
 from django.views.generic import TemplateView
+
+from projects.models import Project
+from projects.permissions import viewable_projects_for
 
 
 class HomeView(TemplateView):
@@ -28,6 +32,23 @@ class SignUpView(FormView):
 
 
 class ProjectsView(LoginRequiredMixin, TemplateView):
-    """Authenticated starting point for future retrospective projects."""
+    """List projects available to the signed-in user."""
 
     template_name = "projects/index.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["projects"] = viewable_projects_for(self.request.user)
+        return context
+
+
+class ProjectDashboardView(LoginRequiredMixin, DetailView):
+    """Membership-scoped dashboard shell for one retrospective project."""
+
+    context_object_name = "project"
+    model = Project
+    pk_url_kwarg = "project_id"
+    template_name = "projects/dashboard.html"
+
+    def get_queryset(self):
+        return viewable_projects_for(self.request.user)

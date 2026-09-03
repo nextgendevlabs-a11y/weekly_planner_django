@@ -6,7 +6,7 @@ from django.contrib import admin
 from django.contrib.auth.views import LoginView, LogoutView
 from django.urls import path
 
-from weekly_planner.views import HomeView, ProjectsView, SignUpView
+from weekly_planner.views import HomeView, ProjectDashboardView, ProjectsView, SignUpView
 
 
 urlpatterns = [
@@ -19,6 +19,11 @@ urlpatterns = [
     ),
     path("accounts/logout/", LogoutView.as_view(), name="logout"),
     path("projects/", ProjectsView.as_view(), name="projects"),
+    path(
+        "projects/<int:project_id>/",
+        ProjectDashboardView.as_view(),
+        name="project_dashboard",
+    ),
     path("admin/", admin.site.urls),
 ]
 

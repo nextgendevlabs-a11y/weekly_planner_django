@@ -201,7 +201,7 @@ def test_projects_redirects_anonymous_visitors_to_login_with_next(client):
     assert response["Location"] == f"{reverse('login')}?next={reverse('projects')}"
 
 
-def test_projects_page_renders_placeholder_for_signed_in_users(client):
+def test_projects_page_renders_project_list_template_for_signed_in_users(client):
     client.force_login(create_user())
 
     response = client.get(reverse("projects"))
@@ -210,11 +210,11 @@ def test_projects_page_renders_placeholder_for_signed_in_users(client):
     assert response.status_code == 200
     assert "projects/index.html" in [template.name for template in response.templates]
     assert "base.html" in [template.name for template in response.templates]
-    assert "starting place for each team retrospective" in content
-    assert "Start, Stop, and Continue" in content
+    assert "Projects" in content
+    assert "Projects appear here after you are added to a retrospective team." in content
 
 
-def test_projects_placeholder_does_not_show_later_workflow_scope(client):
+def test_projects_list_does_not_show_later_workflow_scope(client):
     client.force_login(create_user())
 
     response = client.get(reverse("projects"))
@@ -223,7 +223,6 @@ def test_projects_placeholder_does_not_show_later_workflow_scope(client):
     assert "membership" not in content
     assert "facilitator" not in content
     assert "feedback cycle" not in content
-    assert "dashboard" not in content
     assert "board" not in content
     assert "meeting upload" not in content
     assert "summary" not in content

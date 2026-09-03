@@ -3,12 +3,26 @@
 {% block title %}Projects - Weekly Planner{% endblock %}
 
 {% block content %}
-  <section class="placeholder" aria-labelledby="projects-heading">
-    <h1 id="projects-heading">Projects</h1>
-    <p>
-      This will become the starting place for each team retrospective. Soon it
-      will help teams choose the project they use to collect Start, Stop, and Continue
-      feedback before the weekly conversation.
-    </p>
+  <section class="stack" aria-labelledby="projects-heading">
+    <div class="page-heading">
+      <h1 id="projects-heading">Projects</h1>
+      <p>Choose a retrospective team space to prepare for the weekly conversation.</p>
+    </div>
+
+    {% if projects %}
+      <ul class="project-list" aria-label="Your retrospective projects">
+        {% for project in projects %}
+          <li>
+            <a href="{% url 'project_dashboard' project_id=project.pk %}">
+              {{ project.name }}
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="empty-state">
+        Projects appear here after you are added to a retrospective team.
+      </p>
+    {% endif %}
   </section>
 {% endblock %}
