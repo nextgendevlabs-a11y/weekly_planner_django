@@ -351,7 +351,7 @@ def test_submission_progress_preserves_top_level_navigation_scope(client):
     assert set(nav.hrefs) == {reverse("home"), reverse("projects")}
     assert nav.form_actions == [reverse("logout")]
     assert "board" not in content
-    assert "reveal" not in content
+    assert "Reveal feedback" in response.content.decode()
     assert "clustering" not in content
     assert "voting" not in content
     assert "discussion" not in content

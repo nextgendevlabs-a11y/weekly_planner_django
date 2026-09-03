@@ -16,6 +16,7 @@ from projects.forms import FeedbackCardForm, FeedbackCycleCreateForm
 from projects.models import FeedbackCard, FeedbackCycle, Project
 from projects.permissions import can_facilitate_project, facilitatable_projects_for
 from projects.permissions import viewable_projects_for
+from projects.retrospective_board import retrospective_board_sections_for
 from projects.submission_progress import submission_progress_for
 
 
@@ -68,6 +69,7 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
             .first()
         )
         collecting_cycle = None
+        retrospective_cycle = None
         has_submitted_feedback = False
         team_submission_progress = None
         can_facilitate = can_facilitate_project(self.request.user, self.object)
@@ -78,11 +80,17 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
             ).exists()
             if can_facilitate:
                 team_submission_progress = submission_progress_for(active_cycle)
+        elif active_cycle and active_cycle.status == FeedbackCycle.Status.RETROSPECTIVE:
+            retrospective_cycle = active_cycle
 
         context["active_cycle"] = active_cycle
         context["collecting_cycle"] = collecting_cycle
+        context["retrospective_cycle"] = retrospective_cycle
         context["has_submitted_feedback"] = has_submitted_feedback
         context["team_submission_progress"] = team_submission_progress
+        context["can_reveal_feedback"] = (
+            collecting_cycle is not None and can_facilitate
+        )
         context["can_create_feedback_cycle"] = (
             active_cycle is None and can_facilitate
         )
@@ -295,3 +303,67 @@ class FeedbackCardDeleteView(CollectingFeedbackCycleMixin, View):
     def get(self, request, *args, **kwargs):
         self.get_card()
         return redirect(self.get_success_url())
+
+
+class FeedbackCycleRevealView(LoginRequiredMixin, View):
+    """Facilitator-only action that starts the retrospective board."""
+
+    def get_project(self):
+        if not hasattr(self, "_project"):
+            self._project = get_object_or_404(
+                facilitatable_projects_for(self.request.user),
+                pk=self.kwargs["project_id"],
+            )
+        return self._project
+
+    def get_cycle(self):
+        if not hasattr(self, "_cycle"):
+            self._cycle = get_object_or_404(
+                self.get_project().feedback_cycles.filter(
+                    status=FeedbackCycle.Status.COLLECTING_FEEDBACK,
+                ),
+                pk=self.kwargs["cycle_id"],
+            )
+        return self._cycle
+
+    def post(self, request, *args, **kwargs):
+        cycle = self.get_cycle()
+        cycle.status = FeedbackCycle.Status.RETROSPECTIVE
+        cycle.save(update_fields=["status", "updated_at"])
+        return redirect(
+            "retrospective_board",
+            project_id=self.get_project().pk,
+            cycle_id=cycle.pk,
+        )
+
+
+class RetrospectiveBoardView(LoginRequiredMixin, TemplateView):
+    """First revealed board for Start, Stop, and Continue feedback."""
+
+    template_name = "projects/retrospective_board.html"
+
+    def get_project(self):
+        if not hasattr(self, "_project"):
+            self._project = get_object_or_404(
+                viewable_projects_for(self.request.user),
+                pk=self.kwargs["project_id"],
+            )
+        return self._project
+
+    def get_cycle(self):
+        if not hasattr(self, "_cycle"):
+            self._cycle = get_object_or_404(
+                self.get_project().feedback_cycles.filter(
+                    status=FeedbackCycle.Status.RETROSPECTIVE,
+                ),
+                pk=self.kwargs["cycle_id"],
+            )
+        return self._cycle
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        cycle = self.get_cycle()
+        context["project"] = self.get_project()
+        context["cycle"] = cycle
+        context["category_sections"] = retrospective_board_sections_for(cycle)
+        return context

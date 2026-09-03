@@ -333,8 +333,8 @@ def test_project_dashboard_cycle_state_for_facilitators_and_members(client):
         )
         in active_content
     )
-    assert "No retrospective is ready to open yet." in active_content
-    assert "reveal" not in active_content.lower()
+    assert "Feedback is still being collected for Week 34 Retrospective." in active_content
+    assert "Reveal feedback" in active_content
     assert "clustering" not in active_content.lower()
     assert "voting" not in active_content.lower()
     assert "discussion" not in active_content.lower()

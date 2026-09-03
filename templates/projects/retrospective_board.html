@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Board for {{ cycle.label }} - Weekly Planner{% endblock %}
+
+{% block content %}
+  <section class="stack" aria-labelledby="board-heading">
+    <div class="page-heading">
+      <h1 id="board-heading">{{ project.name }}</h1>
+      <p>{{ cycle.label }} retrospective board</p>
+    </div>
+
+    <div class="feedback-columns" aria-label="Revealed feedback">
+      {% for section in category_sections %}
+        <section class="feedback-section" aria-labelledby="board-{{ section.value }}-heading">
+          <h2 id="board-{{ section.value }}-heading">{{ section.label }}</h2>
+
+          {% if section.cards %}
+            <ul class="feedback-card-list" aria-label="{{ section.label }} feedback">
+              {% for card in section.cards %}
+                <li class="feedback-card">
+                  <p>{{ card.text }}</p>
+                  <p class="status-note">{{ card.author_label }}</p>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="empty-state">No {{ section.label }} feedback was submitted.</p>
+          {% endif %}
+        </section>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

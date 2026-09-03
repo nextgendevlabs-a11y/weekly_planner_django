@@ -11,10 +11,12 @@ from weekly_planner.views import (
     FeedbackCardDeleteView,
     FeedbackCardUpdateView,
     FeedbackCycleCreateView,
+    FeedbackCycleRevealView,
     FeedbackSubmissionView,
     HomeView,
     ProjectDashboardView,
     ProjectsView,
+    RetrospectiveBoardView,
     SignUpView,
 )
 
@@ -58,6 +60,16 @@ urlpatterns = [
         "projects/<int:project_id>/cycles/<int:cycle_id>/feedback/<int:card_id>/delete/",
         FeedbackCardDeleteView.as_view(),
         name="feedback_card_delete",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/reveal/",
+        FeedbackCycleRevealView.as_view(),
+        name="feedback_cycle_reveal",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/",
+        RetrospectiveBoardView.as_view(),
+        name="retrospective_board",
     ),
     path("admin/", admin.site.urls),
 ]

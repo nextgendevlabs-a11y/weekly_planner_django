@@ -15,6 +15,12 @@
         {% if active_cycle %}
           <p><strong>{{ active_cycle.label }}</strong></p>
           <p class="status-note">{{ active_cycle.get_status_display }}</p>
+          {% if can_reveal_feedback %}
+            <form class="section-action" method="post" action="{% url 'feedback_cycle_reveal' project_id=project.pk cycle_id=active_cycle.pk %}">
+              {% csrf_token %}
+              <button class="button" type="submit">Reveal feedback</button>
+            </form>
+          {% endif %}
         {% else %}
           <p class="status-note">No feedback cycle has been started for this project yet.</p>
           {% if can_create_feedback_cycle %}
@@ -65,7 +71,18 @@
 
       <section class="status-section" aria-labelledby="retrospective-entry-heading">
         <h2 id="retrospective-entry-heading">Retrospective</h2>
-        <p class="status-note">No retrospective is ready to open yet.</p>
+        {% if retrospective_cycle %}
+          <p class="status-note">{{ retrospective_cycle.label }} is ready for the retrospective board.</p>
+          <p class="section-action">
+            <a class="button" href="{% url 'retrospective_board' project_id=project.pk cycle_id=retrospective_cycle.pk %}">
+              Open retrospective board
+            </a>
+          </p>
+        {% elif collecting_cycle %}
+          <p class="status-note">Feedback is still being collected for {{ collecting_cycle.label }}.</p>
+        {% else %}
+          <p class="status-note">No retrospective is ready to open yet.</p>
+        {% endif %}
       </section>
 
       <section class="status-section" aria-labelledby="previous-retrospectives-heading">
