@@ -6,15 +6,29 @@ import os
 from pathlib import Path
 from urllib.parse import parse_qsl, unquote, urlparse
 
+from django.core.exceptions import ImproperlyConfigured
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+TRUE_VALUES = {"1", "true", "yes", "on"}
+FALSE_VALUES = {"0", "false", "no", "off"}
 
 
 def env_bool(name: str, default: bool = False) -> bool:
     value = os.environ.get(name)
     if value is None:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+    normalized = value.strip().lower()
+    if normalized in TRUE_VALUES:
+        return True
+    if normalized in FALSE_VALUES:
+        return False
+
+    raise ImproperlyConfigured(
+        f"{name} must be one of: {', '.join(sorted(TRUE_VALUES | FALSE_VALUES))}."
+    )
 
 
 def env_list(name: str, default: list[str]) -> list[str]:
@@ -22,6 +36,22 @@ def env_list(name: str, default: list[str]) -> list[str]:
     if value is None:
         return default
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def env_positive_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ImproperlyConfigured(f"{name} must be a positive integer.") from exc
+
+    if parsed <= 0:
+        raise ImproperlyConfigured(f"{name} must be a positive integer.")
+
+    return parsed
 
 
 def database_config() -> dict[str, object]:
@@ -39,7 +69,10 @@ def database_config() -> dict[str, object]:
     elif scheme == "sqlite":
         engine = "django.db.backends.sqlite3"
     else:
-        raise ValueError(f"Unsupported DATABASE_URL scheme: {parsed.scheme}")
+        raise ImproperlyConfigured(
+            "Unsupported DATABASE_URL scheme "
+            f"'{parsed.scheme}'. Supported schemes: sqlite, postgres, postgresql."
+        )
 
     if engine == "django.db.backends.sqlite3":
         name = unquote(parsed.path.lstrip("/")) or ":memory:"
@@ -122,9 +155,18 @@ TIME_ZONE = os.environ.get("DJANGO_TIME_ZONE", "UTC")
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-MEDIA_URL = "media/"
+MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+DATA_UPLOAD_MAX_MEMORY_SIZE = env_positive_int(
+    "DJANGO_DATA_UPLOAD_MAX_MEMORY_SIZE",
+    2_621_440,
+)
+FILE_UPLOAD_MAX_MEMORY_SIZE = env_positive_int(
+    "DJANGO_FILE_UPLOAD_MAX_MEMORY_SIZE",
+    2_621_440,
+)
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
