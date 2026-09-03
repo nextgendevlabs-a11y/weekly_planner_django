@@ -29,7 +29,20 @@
 
       <section class="status-section" aria-labelledby="submission-status-heading">
         <h2 id="submission-status-heading">Your submission status</h2>
-        <p class="status-note">There is no open Start, Stop, and Continue submission yet.</p>
+        {% if collecting_cycle %}
+          {% if has_submitted_feedback %}
+            <p class="status-note">Submitted for {{ collecting_cycle.label }}.</p>
+          {% else %}
+            <p class="status-note">Not submitted yet for {{ collecting_cycle.label }}.</p>
+          {% endif %}
+          <p class="section-action">
+            <a class="button" href="{% url 'feedback_submission' project_id=project.pk cycle_id=collecting_cycle.pk %}">
+              Open feedback form
+            </a>
+          </p>
+        {% else %}
+          <p class="status-note">There is no open Start, Stop, and Continue submission yet.</p>
+        {% endif %}
       </section>
 
       <section class="status-section" aria-labelledby="retrospective-entry-heading">

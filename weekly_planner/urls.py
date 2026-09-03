@@ -7,7 +7,11 @@ from django.contrib.auth.views import LoginView, LogoutView
 from django.urls import path
 
 from weekly_planner.views import (
+    FeedbackCardCreateView,
+    FeedbackCardDeleteView,
+    FeedbackCardUpdateView,
     FeedbackCycleCreateView,
+    FeedbackSubmissionView,
     HomeView,
     ProjectDashboardView,
     ProjectsView,
@@ -34,6 +38,26 @@ urlpatterns = [
         "projects/<int:project_id>/cycles/new/",
         FeedbackCycleCreateView.as_view(),
         name="feedback_cycle_create",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/feedback/",
+        FeedbackSubmissionView.as_view(),
+        name="feedback_submission",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/feedback/<str:category>/add/",
+        FeedbackCardCreateView.as_view(),
+        name="feedback_card_create",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/feedback/<int:card_id>/edit/",
+        FeedbackCardUpdateView.as_view(),
+        name="feedback_card_update",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/feedback/<int:card_id>/delete/",
+        FeedbackCardDeleteView.as_view(),
+        name="feedback_card_delete",
     ),
     path("admin/", admin.site.urls),
 ]

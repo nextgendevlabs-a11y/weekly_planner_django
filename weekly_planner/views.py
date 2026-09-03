@@ -3,15 +3,17 @@
 from django.contrib.auth import login
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.shortcuts import get_object_or_404
+from django.http import Http404
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.urls import reverse_lazy
 from django.views.generic import DetailView
 from django.views.generic import FormView
 from django.views.generic import TemplateView
+from django.views.generic import View
 
-from projects.forms import FeedbackCycleCreateForm
-from projects.models import FeedbackCycle, Project
+from projects.forms import FeedbackCardForm, FeedbackCycleCreateForm
+from projects.models import FeedbackCard, FeedbackCycle, Project
 from projects.permissions import can_facilitate_project, facilitatable_projects_for
 from projects.permissions import viewable_projects_for
 
@@ -64,7 +66,17 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
             .order_by("-opens_at", "-id")
             .first()
         )
+        collecting_cycle = None
+        has_submitted_feedback = False
+        if active_cycle and active_cycle.status == FeedbackCycle.Status.COLLECTING_FEEDBACK:
+            collecting_cycle = active_cycle
+            has_submitted_feedback = active_cycle.feedback_cards.filter(
+                author=self.request.user
+            ).exists()
+
         context["active_cycle"] = active_cycle
+        context["collecting_cycle"] = collecting_cycle
+        context["has_submitted_feedback"] = has_submitted_feedback
         context["can_create_feedback_cycle"] = (
             active_cycle is None and can_facilitate_project(self.request.user, self.object)
         )
@@ -105,3 +117,175 @@ class FeedbackCycleCreateView(LoginRequiredMixin, FormView):
             "project_dashboard",
             kwargs={"project_id": self.get_project().pk},
         )
+
+
+class CollectingFeedbackCycleMixin(LoginRequiredMixin):
+    """Resolve member-only access to a collecting feedback cycle."""
+
+    def get_project(self):
+        if not hasattr(self, "_project"):
+            self._project = get_object_or_404(
+                viewable_projects_for(self.request.user),
+                pk=self.kwargs["project_id"],
+            )
+        return self._project
+
+    def get_cycle(self):
+        if not hasattr(self, "_cycle"):
+            self._cycle = get_object_or_404(
+                self.get_project().feedback_cycles.filter(
+                    status=FeedbackCycle.Status.COLLECTING_FEEDBACK,
+                ),
+                pk=self.kwargs["cycle_id"],
+            )
+        return self._cycle
+
+    def get_success_url(self):
+        return reverse(
+            "feedback_submission",
+            kwargs={
+                "project_id": self.get_project().pk,
+                "cycle_id": self.get_cycle().pk,
+            },
+        )
+
+    def render_submission(self, *, invalid_create_forms=None, invalid_edit_forms=None):
+        view = FeedbackSubmissionView()
+        view.setup(self.request, *self.args, **self.kwargs)
+        context = view.get_context_data(
+            invalid_create_forms=invalid_create_forms or {},
+            invalid_edit_forms=invalid_edit_forms or {},
+        )
+        return view.render_to_response(context)
+
+
+class FeedbackSubmissionView(CollectingFeedbackCycleMixin, TemplateView):
+    """Private Start, Stop, and Continue feedback form for one contributor."""
+
+    template_name = "projects/feedback_submission.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        project = self.get_project()
+        cycle = self.get_cycle()
+        invalid_create_forms = kwargs.get("invalid_create_forms", {})
+        invalid_edit_forms = kwargs.get("invalid_edit_forms", {})
+        own_cards = cycle.feedback_cards.filter(author=self.request.user)
+        category_sections = []
+
+        for category_value, category_label in FeedbackCard.Category.choices:
+            cards = list(own_cards.filter(category=category_value))
+            for card in cards:
+                card.edit_form = invalid_edit_forms.get(
+                    card.pk,
+                    FeedbackCardForm(
+                        instance=card,
+                        cycle=cycle,
+                        author=self.request.user,
+                        auto_id=f"id_card_{card.pk}_%s",
+                    ),
+                )
+
+            category_sections.append(
+                {
+                    "value": category_value,
+                    "label": category_label,
+                    "cards": cards,
+                    "create_form": invalid_create_forms.get(
+                        category_value,
+                        FeedbackCardForm(
+                            cycle=cycle,
+                            author=self.request.user,
+                            category=category_value,
+                            auto_id=f"id_new_{category_value}_%s",
+                        ),
+                    ),
+                }
+            )
+
+        context["project"] = project
+        context["cycle"] = cycle
+        context["category_sections"] = category_sections
+        return context
+
+
+class FeedbackCardCreateView(CollectingFeedbackCycleMixin, View):
+    """Create one private feedback card in a fixed Start/Stop/Continue category."""
+
+    def get_category(self):
+        category = self.kwargs["category"]
+        if category not in FeedbackCard.Category.values:
+            raise Http404("No feedback category matches the given query.")
+        return category
+
+    def post(self, request, *args, **kwargs):
+        category = self.get_category()
+        form = FeedbackCardForm(
+            request.POST,
+            cycle=self.get_cycle(),
+            author=request.user,
+            category=category,
+            auto_id=f"id_new_{category}_%s",
+        )
+        if form.is_valid():
+            form.save()
+            return redirect(self.get_success_url())
+
+        return self.render_submission(invalid_create_forms={category: form})
+
+
+class FeedbackCardUpdateView(CollectingFeedbackCycleMixin, View):
+    """Update a feedback card owned by the signed-in contributor."""
+
+    def get_card(self):
+        if not hasattr(self, "_card"):
+            self._card = get_object_or_404(
+                FeedbackCard.objects.filter(
+                    cycle=self.get_cycle(),
+                    author=self.request.user,
+                ),
+                pk=self.kwargs["card_id"],
+            )
+        return self._card
+
+    def post(self, request, *args, **kwargs):
+        card = self.get_card()
+        form = FeedbackCardForm(
+            request.POST,
+            instance=card,
+            cycle=self.get_cycle(),
+            author=request.user,
+            auto_id=f"id_card_{card.pk}_%s",
+        )
+        if form.is_valid():
+            form.save()
+            return redirect(self.get_success_url())
+
+        return self.render_submission(invalid_edit_forms={card.pk: form})
+
+    def get(self, request, *args, **kwargs):
+        self.get_card()
+        return redirect(self.get_success_url())
+
+
+class FeedbackCardDeleteView(CollectingFeedbackCycleMixin, View):
+    """Delete a feedback card owned by the signed-in contributor."""
+
+    def get_card(self):
+        if not hasattr(self, "_card"):
+            self._card = get_object_or_404(
+                FeedbackCard.objects.filter(
+                    cycle=self.get_cycle(),
+                    author=self.request.user,
+                ),
+                pk=self.kwargs["card_id"],
+            )
+        return self._card
+
+    def post(self, request, *args, **kwargs):
+        self.get_card().delete()
+        return redirect(self.get_success_url())
+
+    def get(self, request, *args, **kwargs):
+        self.get_card()
+        return redirect(self.get_success_url())

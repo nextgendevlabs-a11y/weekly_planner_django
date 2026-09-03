@@ -1,6 +1,6 @@
 from django import forms
 
-from projects.models import FeedbackCycle
+from projects.models import FeedbackCard, FeedbackCycle
 
 
 class FeedbackCycleCreateForm(forms.ModelForm):
@@ -47,3 +47,39 @@ class FeedbackCycleCreateForm(forms.ModelForm):
         if commit:
             cycle.save()
         return cycle
+
+
+class FeedbackCardForm(forms.ModelForm):
+    class Meta:
+        model = FeedbackCard
+        fields = ["text", "is_anonymous"]
+        labels = {
+            "text": "Feedback",
+            "is_anonymous": "Submit this card anonymously",
+        }
+        widgets = {
+            "text": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, cycle, author, category=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cycle = cycle
+        self.author = author
+        self.category = category
+        self.fields["text"].error_messages["required"] = "Feedback text cannot be empty."
+
+    def clean_text(self):
+        text = self.cleaned_data["text"]
+        if not text.strip():
+            raise forms.ValidationError("Feedback text cannot be empty.")
+        return text.strip()
+
+    def save(self, commit=True):
+        card = super().save(commit=False)
+        card.cycle = self.cycle
+        card.author = self.author
+        if self.category is not None:
+            card.category = self.category
+        if commit:
+            card.save()
+        return card

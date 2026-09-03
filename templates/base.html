@@ -142,6 +142,11 @@
       margin: 1.5rem 0;
     }
 
+    .form-fields.compact {
+      gap: 0.75rem;
+      margin: 1rem 0;
+    }
+
     .field {
       display: grid;
       gap: 0.4rem;
@@ -151,12 +156,27 @@
       font-weight: 700;
     }
 
-    input {
+    input:not([type="checkbox"]),
+    textarea {
       width: 100%;
       border: 1px solid var(--border);
       border-radius: 6px;
       padding: 0.65rem 0.75rem;
       font: inherit;
+    }
+
+    textarea {
+      resize: vertical;
+    }
+
+    input[type="checkbox"] {
+      width: auto;
+    }
+
+    .checkbox-field {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
     }
 
     .helptext {
@@ -187,6 +207,28 @@
     .button:hover,
     .button:focus {
       background: var(--accent-strong);
+    }
+
+    .secondary-button {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--accent-strong);
+    }
+
+    .secondary-button:hover,
+    .secondary-button:focus {
+      border-color: var(--accent);
+      background: #eefcf9;
+    }
+
+    .danger-button {
+      margin-top: 0.75rem;
+      background: var(--danger);
+    }
+
+    .danger-button:hover,
+    .danger-button:focus {
+      background: #912018;
     }
 
     .placeholder {
@@ -290,6 +332,48 @@
 
     .workflow span {
       color: var(--muted);
+    }
+
+    .feedback-columns {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+      gap: 1rem;
+    }
+
+    .feedback-section,
+    .feedback-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      padding: 1rem;
+    }
+
+    .feedback-section {
+      display: grid;
+      align-content: start;
+      gap: 1rem;
+    }
+
+    .feedback-section h2 {
+      margin: 0;
+      font-size: 1.25rem;
+      line-height: 1.3;
+    }
+
+    .feedback-card-list {
+      display: grid;
+      gap: 1rem;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .feedback-card {
+      background: #fbfcfd;
+    }
+
+    .feedback-card p {
+      margin: 0 0 0.5rem;
     }
   </style>
 </head>

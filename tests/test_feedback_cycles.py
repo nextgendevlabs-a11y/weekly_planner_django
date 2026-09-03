@@ -325,7 +325,14 @@ def test_project_dashboard_cycle_state_for_facilitators_and_members(client):
     assert "Week 34 Retrospective" in active_content
     assert "Collecting feedback" in active_content
     assert reverse("feedback_cycle_create", kwargs={"project_id": project.pk}) not in active_content
-    assert "There is no open Start, Stop, and Continue submission yet." in active_content
+    assert "Not submitted yet for Week 34 Retrospective." in active_content
+    assert (
+        reverse(
+            "feedback_submission",
+            kwargs={"project_id": project.pk, "cycle_id": project.feedback_cycles.get().pk},
+        )
+        in active_content
+    )
     assert "No retrospective is ready to open yet." in active_content
     assert "reveal" not in active_content.lower()
     assert "clustering" not in active_content.lower()

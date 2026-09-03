@@ -117,3 +117,46 @@ class FeedbackCycle(models.Model):
 
     def __str__(self) -> str:
         return f"{self.label} ({self.project})"
+
+
+class FeedbackCard(models.Model):
+    class Category(models.TextChoices):
+        START = "start", "Start"
+        STOP = "stop", "Stop"
+        CONTINUE = "continue", "Continue"
+
+    cycle = models.ForeignKey(
+        FeedbackCycle,
+        on_delete=models.CASCADE,
+        related_name="feedback_cards",
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="feedback_cards",
+    )
+    category = models.CharField(
+        max_length=16,
+        choices=Category.choices,
+    )
+    text = models.TextField()
+    is_anonymous = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(category__in=["start", "stop", "continue"]),
+                name="feedback_card_category_is_mvp_category",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if not self.text or not self.text.strip():
+            raise ValidationError({"text": "Feedback text cannot be empty."})
+
+    def __str__(self) -> str:
+        return f"{self.get_category_display()} feedback by {self.author} for {self.cycle}"
