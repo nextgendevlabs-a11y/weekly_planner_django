@@ -151,6 +151,17 @@ def action_update_path(project, cycle, action_item):
     )
 
 
+def action_owner_complete_path(project, cycle, action_item):
+    return reverse(
+        "action_item_owner_complete",
+        kwargs={
+            "project_id": project.pk,
+            "cycle_id": cycle.pk,
+            "action_item_id": action_item.pk,
+        },
+    )
+
+
 def decision_create_path(project, cycle):
     return reverse(
         "retrospective_decision_create",
@@ -646,6 +657,7 @@ def test_anonymous_and_protected_users_get_no_leakage_on_outcome_routes(client):
     endpoints = [
         action_create_path(project, cycle),
         action_update_path(project, cycle, action),
+        action_owner_complete_path(project, cycle, action),
         decision_create_path(project, cycle),
         decision_update_path(project, cycle, decision),
     ]
@@ -673,6 +685,7 @@ def test_anonymous_and_protected_users_get_no_leakage_on_outcome_routes(client):
                 action_update_path(project, cycle, action),
                 action_payload(member, topic, status=ActionItem.Status.DONE),
             ),
+            client.post(action_owner_complete_path(project, cycle, action)),
             client.post(decision_create_path(project, cycle), decision_payload(topic=topic)),
             client.post(
                 decision_update_path(project, cycle, decision),
@@ -686,8 +699,14 @@ def test_anonymous_and_protected_users_get_no_leakage_on_outcome_routes(client):
     client.force_login(inactive)
     inactive_path = action_update_path(project, cycle, action)
     inactive_response = client.post(inactive_path, action_payload(member, topic))
+    inactive_complete_path = action_owner_complete_path(project, cycle, action)
+    inactive_complete_response = client.post(inactive_complete_path)
     assert inactive_response.status_code == 302
     assert inactive_response["Location"] == f"{reverse('login')}?next={inactive_path}"
+    assert inactive_complete_response.status_code == 302
+    assert inactive_complete_response["Location"] == (
+        f"{reverse('login')}?next={inactive_complete_path}"
+    )
 
     action.refresh_from_db()
     decision.refresh_from_db()
@@ -839,3 +858,319 @@ def test_dashboard_shows_only_open_project_action_items_to_project_members(clien
             "Hidden done dashboard action",
         ],
     )
+
+
+def test_dashboard_shows_owner_completion_controls_only_for_assigned_open_actions(
+    client,
+):
+    facilitator = create_user("facilitator")
+    owner = create_user("owner")
+    coworker = create_user("coworker")
+    other_member = create_user("other-member")
+    project = create_project("Owner Completion Dashboard Project")
+    other_project = create_project("Other Owner Completion Project")
+    add_membership(facilitator, project, Membership.Role.FACILITATOR)
+    add_membership(owner, project)
+    add_membership(coworker, project)
+    add_membership(owner, other_project)
+    add_membership(other_member, other_project)
+    cycle = create_cycle(project, facilitator, label="Owner Completion Week")
+    topic = create_cluster(cycle, "Owner completion topic")
+    own_open_action = create_action_item(
+        cycle,
+        owner,
+        topic,
+        description="Owner visible open action",
+        due_date=date(2026, 10, 1),
+    )
+    coworker_open_action = create_action_item(
+        cycle,
+        coworker,
+        topic,
+        description="Coworker visible open action",
+    )
+    own_done_action = create_action_item(
+        cycle,
+        owner,
+        topic,
+        description="Owner hidden done action",
+        status=ActionItem.Status.DONE,
+    )
+    other_cycle = create_cycle(
+        other_project,
+        facilitator,
+        label="Other Owner Completion Week",
+    )
+    other_topic = create_cluster(other_cycle, "Other owner completion topic")
+    other_project_action = create_action_item(
+        other_cycle,
+        owner,
+        other_topic,
+        description="Other project owner action",
+    )
+
+    client.force_login(owner)
+    owner_response = client.get(dashboard_path(project))
+    owner_content = owner_response.content.decode()
+    owner_form_actions = [form["action"] for form in parser_from(owner_response).forms]
+
+    assert owner_response.status_code == 200
+    assert "Owner visible open action" in owner_content
+    assert "Coworker visible open action" in owner_content
+    assert "Owner: owner" in owner_content
+    assert "Owner: coworker" in owner_content
+    assert "Topic: Owner completion topic" in owner_content
+    assert "Cycle: Owner Completion Week" in owner_content
+    assert "Due: Oct. 1, 2026" in owner_content
+    assert "Due: No due date" in owner_content
+    assert "Owner hidden done action" not in owner_content
+    assert "Other project owner action" not in owner_content
+    assert action_owner_complete_path(project, cycle, own_open_action) in owner_form_actions
+    assert (
+        action_owner_complete_path(project, cycle, coworker_open_action)
+        not in owner_form_actions
+    )
+    assert action_owner_complete_path(project, cycle, own_done_action) not in owner_form_actions
+    assert (
+        action_owner_complete_path(other_project, other_cycle, other_project_action)
+        not in owner_form_actions
+    )
+
+    client.force_login(coworker)
+    coworker_response = client.get(dashboard_path(project))
+    coworker_form_actions = [
+        form["action"] for form in parser_from(coworker_response).forms
+    ]
+    assert action_owner_complete_path(project, cycle, coworker_open_action) in (
+        coworker_form_actions
+    )
+    assert action_owner_complete_path(project, cycle, own_open_action) not in (
+        coworker_form_actions
+    )
+
+    client.force_login(facilitator)
+    facilitator_response = client.get(dashboard_path(project))
+    facilitator_form_actions = [
+        form["action"] for form in parser_from(facilitator_response).forms
+    ]
+    assert action_owner_complete_path(project, cycle, own_open_action) not in (
+        facilitator_form_actions
+    )
+    assert action_owner_complete_path(project, cycle, coworker_open_action) not in (
+        facilitator_form_actions
+    )
+
+
+def test_owner_completion_marks_only_status_and_preserves_saved_outcomes(client):
+    facilitator = create_user("facilitator")
+    owner = create_user("owner")
+    next_owner = create_user("next-owner")
+    project = create_project("Owner Completion Project")
+    other_project = create_project("Tampered Owner Completion Project")
+    add_membership(facilitator, project, Membership.Role.FACILITATOR)
+    add_membership(owner, project)
+    add_membership(next_owner, project)
+    cycle = create_cycle(project, facilitator, label="Owner Follow Through Week")
+    topic = create_cluster(cycle, "Follow-through topic", discussion_notes="Keep notes")
+    next_topic = create_cluster(cycle, "Tampered topic")
+    card = create_card(cycle, owner, text="Do not mutate feedback card", cluster=topic)
+    vote = create_vote(cycle, owner, topic)
+    action = create_action_item(
+        cycle,
+        owner,
+        topic,
+        description="Complete the rollout checklist",
+        due_date=date(2026, 10, 1),
+    )
+    other_action = create_action_item(
+        cycle,
+        next_owner,
+        topic,
+        description="Leave another action open",
+    )
+    decision = create_decision(cycle, text="Leave decision alone", topic=topic)
+    original_updated_at = action.updated_at
+
+    client.force_login(owner)
+    response = client.post(
+        action_owner_complete_path(project, cycle, action),
+        {
+            "description": "Tampered description",
+            "owner": str(next_owner.pk),
+            "due_date": "2027-01-01",
+            "topic": str(next_topic.pk),
+            "cycle": str(cycle.pk + 100),
+            "project": str(other_project.pk),
+            "status": "blocked",
+        },
+    )
+
+    assert response.status_code == 302
+    assert response["Location"] == dashboard_path(project)
+    action.refresh_from_db()
+    other_action.refresh_from_db()
+    decision.refresh_from_db()
+    topic.refresh_from_db()
+    card.refresh_from_db()
+    vote.refresh_from_db()
+    assert action.status == ActionItem.Status.DONE
+    assert action.description == "Complete the rollout checklist"
+    assert action.owner == owner
+    assert action.due_date == date(2026, 10, 1)
+    assert action.topic == topic
+    assert action.cycle == cycle
+    assert action.updated_at == original_updated_at
+    assert other_action.status == ActionItem.Status.OPEN
+    assert other_action.description == "Leave another action open"
+    assert decision.text == "Leave decision alone"
+    assert topic.discussion_notes == "Keep notes"
+    assert card.text == "Do not mutate feedback card"
+    assert card.cluster == topic
+    assert vote.vote_count == 3
+
+    dashboard_response = client.get(dashboard_path(project))
+    dashboard_content = dashboard_response.content.decode()
+    dashboard_form_actions = [
+        form["action"] for form in parser_from(dashboard_response).forms
+    ]
+    assert "Complete the rollout checklist" not in dashboard_content
+    assert action_owner_complete_path(project, cycle, action) not in dashboard_form_actions
+    assert "Leave another action open" in dashboard_content
+
+    board_content = client.get(board_path(project, cycle)).content.decode()
+    assert "Complete the rollout checklist" in board_content
+    assert "Owner: owner" in board_content
+    assert "Status: Done" in board_content
+    assert "Topic: Follow-through topic" in board_content
+    assert "Due: Oct. 1, 2026" in board_content
+
+
+def test_owner_completion_denies_non_owner_and_tampered_scope_without_leakage(
+    client,
+):
+    facilitator = create_user("facilitator")
+    owner = create_user("owner")
+    coworker = create_user("coworker")
+    project = create_project("Secret Owner Completion Project")
+    other_project = create_project("Other Secret Owner Completion Project")
+    add_membership(facilitator, project, Membership.Role.FACILITATOR)
+    add_membership(owner, project)
+    add_membership(coworker, project)
+    add_membership(owner, other_project)
+    add_membership(coworker, other_project)
+    cycle = create_cycle(project, facilitator, label="Secret Owner Completion Week")
+    topic = create_cluster(cycle, "Secret owner completion topic")
+    action = create_action_item(
+        cycle,
+        owner,
+        topic,
+        description="Secret owner action",
+    )
+    coworker_action = create_action_item(
+        cycle,
+        coworker,
+        topic,
+        description="Secret coworker action",
+    )
+    other_cycle = create_cycle(
+        project,
+        facilitator,
+        label="Secret completed cycle",
+        status=FeedbackCycle.Status.COMPLETED,
+    )
+    other_cycle_topic = create_cluster(other_cycle, "Secret other cycle topic")
+    other_cycle_action = create_action_item(
+        other_cycle,
+        owner,
+        other_cycle_topic,
+        description="Secret other cycle action",
+    )
+    other_project_cycle = create_cycle(
+        other_project,
+        facilitator,
+        label="Secret other project cycle",
+    )
+    other_project_topic = create_cluster(
+        other_project_cycle,
+        "Secret other project topic",
+    )
+    other_project_action = create_action_item(
+        other_project_cycle,
+        owner,
+        other_project_topic,
+        description="Secret other project action",
+    )
+
+    client.force_login(owner)
+    tamper_responses = [
+        client.post(action_owner_complete_path(project, cycle, coworker_action)),
+        client.post(action_owner_complete_path(project, cycle, other_cycle_action)),
+        client.post(action_owner_complete_path(project, other_cycle, action)),
+        client.post(action_owner_complete_path(other_project, other_project_cycle, action)),
+        client.post(action_owner_complete_path(project, cycle, other_project_action)),
+        client.post(action_owner_complete_path(other_project, cycle, other_project_action)),
+    ]
+    secrets = [
+        "Secret Owner Completion Project",
+        "Other Secret Owner Completion Project",
+        "Secret Owner Completion Week",
+        "Secret completed cycle",
+        "Secret other project cycle",
+        "Secret owner completion topic",
+        "Secret other cycle topic",
+        "Secret other project topic",
+        "Secret owner action",
+        "Secret coworker action",
+        "Secret other cycle action",
+        "Secret other project action",
+        "owner",
+        "coworker",
+    ]
+    for response in tamper_responses:
+        assert response.status_code == 404
+        assert_no_secret_leak(response, secrets)
+
+    for unchanged_action in [
+        action,
+        coworker_action,
+        other_cycle_action,
+        other_project_action,
+    ]:
+        unchanged_action.refresh_from_db()
+        assert unchanged_action.status == ActionItem.Status.OPEN
+
+
+def test_owner_completion_rejects_already_done_action_without_mutating_it(client):
+    facilitator = create_user("facilitator")
+    owner = create_user("owner")
+    project = create_project("Already Done Owner Completion Project")
+    add_membership(facilitator, project, Membership.Role.FACILITATOR)
+    add_membership(owner, project)
+    cycle = create_cycle(project, facilitator, label="Already Done Week")
+    topic = create_cluster(cycle, "Already done topic")
+    action = create_action_item(
+        cycle,
+        owner,
+        topic,
+        description="Already completed owner action",
+        status=ActionItem.Status.DONE,
+    )
+    original_updated_at = action.updated_at
+    client.force_login(owner)
+
+    response = client.post(action_owner_complete_path(project, cycle, action))
+
+    assert response.status_code == 404
+    assert_no_secret_leak(
+        response,
+        [
+            "Already Done Owner Completion Project",
+            "Already Done Week",
+            "Already done topic",
+            "Already completed owner action",
+            "owner",
+        ],
+    )
+    action.refresh_from_db()
+    assert action.status == ActionItem.Status.DONE
+    assert action.updated_at == original_updated_at

@@ -103,6 +103,12 @@
                   Cycle: {{ action_item.cycle.label }} |
                   Due: {% if action_item.due_date %}{{ action_item.due_date }}{% else %}No due date{% endif %}
                 </p>
+                {% if action_item.can_owner_complete %}
+                  <form class="section-action" method="post" action="{% url 'action_item_owner_complete' project_id=project.pk cycle_id=action_item.cycle.pk action_item_id=action_item.pk %}">
+                    {% csrf_token %}
+                    <button class="button secondary-button" type="submit">Mark done</button>
+                  </form>
+                {% endif %}
               </li>
             {% endfor %}
           </ul>

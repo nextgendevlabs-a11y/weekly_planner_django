@@ -8,6 +8,7 @@ from django.urls import path
 
 from weekly_planner.views import (
     ActionItemCreateView,
+    ActionItemOwnerCompleteView,
     ActionItemUpdateView,
     FeedbackCardCreateView,
     FeedbackCardDeleteView,
@@ -162,6 +163,11 @@ urlpatterns = [
         "projects/<int:project_id>/cycles/<int:cycle_id>/board/discussion/actions/<int:action_item_id>/edit/",
         ActionItemUpdateView.as_view(),
         name="action_item_update",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/actions/<int:action_item_id>/complete/",
+        ActionItemOwnerCompleteView.as_view(),
+        name="action_item_owner_complete",
     ),
     path(
         "projects/<int:project_id>/cycles/<int:cycle_id>/board/discussion/decisions/add/",

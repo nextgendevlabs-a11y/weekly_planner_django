@@ -198,7 +198,7 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
         context["can_create_feedback_cycle"] = (
             active_cycle is None and can_facilitate
         )
-        context["open_action_items"] = (
+        open_action_items = list(
             ActionItem.objects.filter(
                 cycle__project=self.object,
                 status=ActionItem.Status.OPEN,
@@ -206,7 +206,48 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
             .select_related("owner", "topic", "cycle")
             .order_by("due_date", "created_at", "id")
         )
+        for action_item in open_action_items:
+            action_item.can_owner_complete = action_item.owner_id == self.request.user.pk
+        context["open_action_items"] = open_action_items
         return context
+
+
+class ActionItemOwnerCompleteView(LoginRequiredMixin, View):
+    """Let an assigned project member mark only their own open action done."""
+
+    def get_project(self):
+        if not hasattr(self, "_project"):
+            self._project = get_object_or_404(
+                viewable_projects_for(self.request.user),
+                pk=self.kwargs["project_id"],
+            )
+        return self._project
+
+    def get_cycle(self):
+        if not hasattr(self, "_cycle"):
+            self._cycle = get_object_or_404(
+                self.get_project().feedback_cycles.all(),
+                pk=self.kwargs["cycle_id"],
+            )
+        return self._cycle
+
+    def get_success_url(self):
+        return reverse(
+            "project_dashboard",
+            kwargs={"project_id": self.get_project().pk},
+        )
+
+    def post(self, request, *args, **kwargs):
+        updated_count = ActionItem.objects.filter(
+            cycle=self.get_cycle(),
+            owner=request.user,
+            pk=self.kwargs["action_item_id"],
+            status=ActionItem.Status.OPEN,
+        ).update(status=ActionItem.Status.DONE)
+        if updated_count != 1:
+            raise Http404("No completable action item matches the given query.")
+
+        return redirect(self.get_success_url())
 
 
 class FeedbackCycleCreateView(LoginRequiredMixin, FormView):
