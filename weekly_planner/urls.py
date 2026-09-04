@@ -7,6 +7,8 @@ from django.contrib.auth.views import LoginView, LogoutView
 from django.urls import path
 
 from weekly_planner.views import (
+    ActionItemCreateView,
+    ActionItemUpdateView,
     FeedbackCardCreateView,
     FeedbackCardDeleteView,
     FeedbackCardClusterMoveView,
@@ -30,6 +32,8 @@ from weekly_planner.views import (
     ProjectDashboardView,
     ProjectsView,
     RetrospectiveBoardView,
+    RetrospectiveDecisionCreateView,
+    RetrospectiveDecisionUpdateView,
     SignUpView,
 )
 
@@ -148,6 +152,26 @@ urlpatterns = [
         "projects/<int:project_id>/cycles/<int:cycle_id>/board/discussion/topics/<int:cluster_id>/",
         FeedbackClusterDiscussionUpdateView.as_view(),
         name="feedback_cluster_discussion_update",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/discussion/actions/add/",
+        ActionItemCreateView.as_view(),
+        name="action_item_create",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/discussion/actions/<int:action_item_id>/edit/",
+        ActionItemUpdateView.as_view(),
+        name="action_item_update",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/discussion/decisions/add/",
+        RetrospectiveDecisionCreateView.as_view(),
+        name="retrospective_decision_create",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/discussion/decisions/<int:decision_id>/edit/",
+        RetrospectiveDecisionUpdateView.as_view(),
+        name="retrospective_decision_update",
     ),
     path("admin/", admin.site.urls),
 ]

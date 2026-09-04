@@ -1,6 +1,13 @@
 from django import forms
+from django.contrib.auth import get_user_model
 
-from projects.models import FeedbackCard, FeedbackCluster, FeedbackCycle
+from projects.models import (
+    ActionItem,
+    FeedbackCard,
+    FeedbackCluster,
+    FeedbackCycle,
+    RetrospectiveDecision,
+)
 
 
 class FeedbackCycleCreateForm(forms.ModelForm):
@@ -152,6 +159,117 @@ class FeedbackClusterDiscussionForm(forms.Form):
             ]
         )
         return self.cluster
+
+
+class ActionItemForm(forms.ModelForm):
+    class Meta:
+        model = ActionItem
+        fields = ["description", "owner", "due_date", "status", "topic"]
+        labels = {
+            "description": "Action item",
+            "owner": "Owner",
+            "due_date": "Due date",
+            "status": "Status",
+            "topic": "Related discussion topic",
+        }
+        widgets = {
+            "description": forms.Textarea(attrs={"rows": 3}),
+            "due_date": forms.DateInput(attrs={"type": "date"}),
+        }
+        error_messages = {
+            "description": {
+                "required": "Action item description cannot be empty.",
+            },
+            "owner": {
+                "required": "Choose an active project member as the action item owner.",
+                "invalid_choice": "Choose an active project member as the action item owner.",
+            },
+            "topic": {
+                "required": "Choose a discussion topic from this cycle.",
+                "invalid_choice": "Choose a discussion topic from this cycle.",
+            },
+            "status": {
+                "invalid_choice": "Choose a valid action item status.",
+            },
+            "due_date": {
+                "invalid": "Enter a valid due date.",
+            },
+        }
+
+    def __init__(self, *args, cycle, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cycle = cycle
+        self.instance.cycle = cycle
+        self.fields["owner"].queryset = (
+            get_user_model()
+            .objects.filter(is_active=True, project_memberships__project=cycle.project)
+            .distinct()
+            .order_by("username", "id")
+        )
+        self.fields["topic"].queryset = cycle.feedback_clusters.all()
+        self.fields["status"].required = False
+
+    def clean_description(self):
+        description = self.cleaned_data["description"]
+        if not description.strip():
+            raise forms.ValidationError("Action item description cannot be empty.")
+        return description.strip()
+
+    def clean_status(self):
+        status = self.cleaned_data.get("status")
+        if status:
+            return status
+        if self.instance.pk:
+            return self.instance.status
+        return ActionItem.Status.OPEN
+
+    def save(self, commit=True):
+        action_item = super().save(commit=False)
+        action_item.cycle = self.cycle
+        if commit:
+            action_item.save()
+        return action_item
+
+
+class RetrospectiveDecisionForm(forms.ModelForm):
+    class Meta:
+        model = RetrospectiveDecision
+        fields = ["text", "topic"]
+        labels = {
+            "text": "Decision",
+            "topic": "Related discussion topic",
+        }
+        widgets = {
+            "text": forms.Textarea(attrs={"rows": 3}),
+        }
+        error_messages = {
+            "text": {
+                "required": "Decision text cannot be empty.",
+            },
+            "topic": {
+                "invalid_choice": "Choose a discussion topic from this cycle.",
+            },
+        }
+
+    def __init__(self, *args, cycle, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cycle = cycle
+        self.instance.cycle = cycle
+        self.fields["topic"].queryset = cycle.feedback_clusters.all()
+        self.fields["topic"].required = False
+
+    def clean_text(self):
+        text = self.cleaned_data["text"]
+        if not text.strip():
+            raise forms.ValidationError("Decision text cannot be empty.")
+        return text.strip()
+
+    def save(self, commit=True):
+        decision = super().save(commit=False)
+        decision.cycle = self.cycle
+        if commit:
+            decision.save()
+        return decision
 
 
 class FeedbackClusterSplitForm(forms.Form):

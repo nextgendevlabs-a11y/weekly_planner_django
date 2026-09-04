@@ -188,6 +188,114 @@ class FeedbackCluster(models.Model):
         return f"{self.name} ({self.cycle})"
 
 
+class ActionItem(models.Model):
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        DONE = "done", "Done"
+
+    cycle = models.ForeignKey(
+        FeedbackCycle,
+        on_delete=models.CASCADE,
+        related_name="action_items",
+    )
+    description = models.TextField()
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="retrospective_action_items",
+    )
+    due_date = models.DateField(blank=True, null=True)
+    status = models.CharField(
+        max_length=8,
+        choices=Status.choices,
+        default=Status.OPEN,
+    )
+    topic = models.ForeignKey(
+        FeedbackCluster,
+        on_delete=models.PROTECT,
+        related_name="action_items",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["due_date", "created_at", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(status__in=["open", "done"]),
+                name="action_item_status_is_mvp_status",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if not self.description or not self.description.strip():
+            raise ValidationError({"description": "Action item description cannot be empty."})
+        self.description = self.description.strip()
+
+        if self.owner_id is not None and self.cycle_id is not None:
+            owner_is_active_member = Membership.objects.filter(
+                project=self.cycle.project,
+                user=self.owner,
+                user__is_active=True,
+            ).exists()
+            if not owner_is_active_member:
+                raise ValidationError(
+                    {"owner": "Choose an active project member as the action item owner."}
+                )
+
+        if (
+            self.topic_id is not None
+            and self.cycle_id is not None
+            and self.topic.cycle_id != self.cycle_id
+        ):
+            raise ValidationError(
+                {"topic": "Action item topic must belong to the same feedback cycle."}
+            )
+
+    def __str__(self) -> str:
+        return f"{self.description} ({self.get_status_display()})"
+
+
+class RetrospectiveDecision(models.Model):
+    cycle = models.ForeignKey(
+        FeedbackCycle,
+        on_delete=models.CASCADE,
+        related_name="decisions",
+    )
+    text = models.TextField()
+    topic = models.ForeignKey(
+        FeedbackCluster,
+        on_delete=models.PROTECT,
+        related_name="decisions",
+        blank=True,
+        null=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+    def clean(self):
+        super().clean()
+        if not self.text or not self.text.strip():
+            raise ValidationError({"text": "Decision text cannot be empty."})
+        self.text = self.text.strip()
+
+        if (
+            self.topic_id is not None
+            and self.cycle_id is not None
+            and self.topic.cycle_id != self.cycle_id
+        ):
+            raise ValidationError(
+                {"topic": "Decision topic must belong to the same feedback cycle."}
+            )
+
+    def __str__(self) -> str:
+        return self.text
+
+
 class FeedbackCard(models.Model):
     class Category(models.TextChoices):
         START = "start", "Start"

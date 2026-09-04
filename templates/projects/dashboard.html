@@ -92,7 +92,23 @@
 
       <section class="status-section" aria-labelledby="open-actions-heading">
         <h2 id="open-actions-heading">Open action items</h2>
-        <p class="status-note">No open action items yet.</p>
+        {% if open_action_items %}
+          <ul class="feedback-card-list" aria-label="Open action items">
+            {% for action_item in open_action_items %}
+              <li class="feedback-card">
+                <p><strong>{{ action_item.description }}</strong></p>
+                <p class="status-note">
+                  Owner: {{ action_item.owner.get_username }} |
+                  Topic: {{ action_item.topic.name }} |
+                  Cycle: {{ action_item.cycle.label }} |
+                  Due: {% if action_item.due_date %}{{ action_item.due_date }}{% else %}No due date{% endif %}
+                </p>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="status-note">No open action items yet.</p>
+        {% endif %}
       </section>
     </div>
   </section>

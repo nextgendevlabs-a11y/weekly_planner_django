@@ -650,8 +650,7 @@ def test_closed_results_are_ranked_deterministically_with_ties_and_zero_vote_clu
     assert "4 votes" in content
     assert "1 vote" in content
     assert "0 votes" in content
-    assert "first-voter" not in content
-    assert "second-voter" not in content
+    assert response.context["voting_progress"] == []
     assert "Voting progress" not in content
 
 

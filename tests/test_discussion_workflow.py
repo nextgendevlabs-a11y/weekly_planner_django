@@ -649,7 +649,7 @@ def test_cross_cycle_and_project_discussion_tampering_is_rejected_without_leakag
     assert other_cluster.discussion_notes == "Other tamper note"
 
 
-def test_discussion_scope_does_not_create_action_decision_transcription_or_summary_data(client):
+def test_discussion_scope_does_not_create_transcription_or_summary_data(client):
     facilitator = create_user(username="facilitator")
     project = create_project("Scope Discussion Project")
     add_membership(facilitator, project, Membership.Role.FACILITATOR)
@@ -671,11 +671,7 @@ def test_discussion_scope_does_not_create_action_decision_transcription_or_summa
 
     assert response.status_code == 302
     assert model_names_after == model_names_before
-    assert "action item" not in content
-    assert "decision" not in content
     assert "transcript" not in content
     assert "upload" not in content
-    assert "owner" not in content
-    assert "due date" not in content
     assert "summary" not in content
     assert "ai-extracted" not in content

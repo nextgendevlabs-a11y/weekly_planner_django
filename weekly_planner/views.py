@@ -14,6 +14,7 @@ from django.views.generic import TemplateView
 from django.views.generic import View
 
 from projects.forms import (
+    ActionItemForm,
     FeedbackCardForm,
     FeedbackClusterDiscussionForm,
     FeedbackClusterForm,
@@ -21,9 +22,18 @@ from projects.forms import (
     FeedbackClusterSuggestionDraftForm,
     FeedbackClusterVoteForm,
     FeedbackCycleCreateForm,
+    RetrospectiveDecisionForm,
 )
 from projects.cluster_suggestions import draft_from_suggestions, get_clustering_service
-from projects.models import FeedbackCard, FeedbackCluster, FeedbackCycle, Project
+from projects.models import (
+    ActionItem,
+    FeedbackCard,
+    FeedbackCluster,
+    FeedbackCycle,
+    Project,
+    RetrospectiveDecision,
+)
+from projects.models import Membership
 from projects.permissions import can_facilitate_project, facilitatable_projects_for
 from projects.permissions import viewable_projects_for
 from projects.retrospective_board import (
@@ -105,6 +115,15 @@ def _posted_vote_cluster_ids(data):
     return cluster_ids
 
 
+def _posted_positive_int_or_404(data, field_name, message):
+    value = data.get(field_name)
+    if value in (None, ""):
+        return None
+    if not value.isdigit():
+        raise Http404(message)
+    return int(value)
+
+
 class HomeView(TemplateView):
     """Public landing page for the retrospective workflow."""
 
@@ -178,6 +197,14 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
         )
         context["can_create_feedback_cycle"] = (
             active_cycle is None and can_facilitate
+        )
+        context["open_action_items"] = (
+            ActionItem.objects.filter(
+                cycle__project=self.object,
+                status=ActionItem.Status.OPEN,
+            )
+            .select_related("owner", "topic", "cycle")
+            .order_by("due_date", "created_at", "id")
         )
         return context
 
@@ -495,6 +522,10 @@ class RetrospectiveCycleFacilitatorMixin(LoginRequiredMixin):
         suggestion_empty_message="",
         invalid_vote_form=None,
         invalid_discussion_forms=None,
+        invalid_action_item_create_form=None,
+        invalid_action_item_edit_forms=None,
+        invalid_decision_create_form=None,
+        invalid_decision_edit_forms=None,
     ):
         view = RetrospectiveBoardView()
         view.setup(self.request, *self.args, **self.kwargs)
@@ -508,6 +539,10 @@ class RetrospectiveCycleFacilitatorMixin(LoginRequiredMixin):
             suggestion_empty_message=suggestion_empty_message,
             invalid_vote_form=invalid_vote_form,
             invalid_discussion_forms=invalid_discussion_forms or {},
+            invalid_action_item_create_form=invalid_action_item_create_form,
+            invalid_action_item_edit_forms=invalid_action_item_edit_forms or {},
+            invalid_decision_create_form=invalid_decision_create_form,
+            invalid_decision_edit_forms=invalid_decision_edit_forms or {},
         )
         return view.render_to_response(context)
 
@@ -518,6 +553,42 @@ class RetrospectiveCycleFacilitatorMixin(LoginRequiredMixin):
     def require_mutable_discussion(self):
         if self.get_cycle().voting_status != FeedbackCycle.VotingStatus.CLOSED:
             raise Http404("No editable discussion stage matches the given query.")
+
+    def require_posted_action_scope(self):
+        owner_id = _posted_positive_int_or_404(
+            self.request.POST,
+            "owner",
+            "No action item owner matches the given query.",
+        )
+        if owner_id is not None:
+            owner_is_active_project_member = Membership.objects.filter(
+                project=self.get_project(),
+                user_id=owner_id,
+                user__is_active=True,
+            ).exists()
+            if not owner_is_active_project_member:
+                raise Http404("No action item owner matches the given query.")
+
+        topic_id = _posted_positive_int_or_404(
+            self.request.POST,
+            "topic",
+            "No action item topic matches the given query.",
+        )
+        if topic_id is not None and not self.get_cycle().feedback_clusters.filter(
+            pk=topic_id
+        ).exists():
+            raise Http404("No action item topic matches the given query.")
+
+    def require_posted_decision_scope(self):
+        topic_id = _posted_positive_int_or_404(
+            self.request.POST,
+            "topic",
+            "No decision topic matches the given query.",
+        )
+        if topic_id is not None and not self.get_cycle().feedback_clusters.filter(
+            pk=topic_id
+        ).exists():
+            raise Http404("No decision topic matches the given query.")
 
 
 class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
@@ -533,6 +604,8 @@ class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
         invalid_split_forms = kwargs.get("invalid_split_forms", {})
         merge_errors = kwargs.get("merge_errors", {})
         invalid_discussion_forms = kwargs.get("invalid_discussion_forms", {})
+        invalid_action_item_edit_forms = kwargs.get("invalid_action_item_edit_forms", {})
+        invalid_decision_edit_forms = kwargs.get("invalid_decision_edit_forms", {})
         can_facilitate = can_facilitate_project(self.request.user, self.get_project())
         can_manage_clusters = (
             can_facilitate
@@ -634,6 +707,48 @@ class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
         context["ranked_clusters"] = ranked_clusters
         context["discussion_topics"] = ranked_clusters
         context["can_manage_discussion"] = can_manage_discussion
+        action_items = []
+        decisions = []
+        if cycle.voting_status == FeedbackCycle.VotingStatus.CLOSED:
+            action_items = list(
+                cycle.action_items.select_related("owner", "topic").order_by(
+                    "due_date",
+                    "created_at",
+                    "id",
+                )
+            )
+            decisions = list(
+                cycle.decisions.select_related("topic").order_by("created_at", "id")
+            )
+            if can_manage_discussion:
+                for action_item in action_items:
+                    action_item.edit_form = invalid_action_item_edit_forms.get(
+                        action_item.pk,
+                        ActionItemForm(
+                            instance=action_item,
+                            cycle=cycle,
+                            auto_id=f"id_action_{action_item.pk}_%s",
+                        ),
+                    )
+                for decision in decisions:
+                    decision.edit_form = invalid_decision_edit_forms.get(
+                        decision.pk,
+                        RetrospectiveDecisionForm(
+                            instance=decision,
+                            cycle=cycle,
+                            auto_id=f"id_decision_{decision.pk}_%s",
+                        ),
+                    )
+        context["action_items"] = action_items
+        context["decisions"] = decisions
+        context["action_item_create_form"] = kwargs.get(
+            "invalid_action_item_create_form",
+            ActionItemForm(cycle=cycle, auto_id="id_new_action_%s"),
+        )
+        context["decision_create_form"] = kwargs.get(
+            "invalid_decision_create_form",
+            RetrospectiveDecisionForm(cycle=cycle, auto_id="id_new_decision_%s"),
+        )
         suggestion_draft = kwargs.get("suggestion_draft")
         if suggestion_draft is None and can_manage_clusters:
             suggestion_draft = _saved_suggestion_draft(self.request, cycle)
@@ -672,6 +787,98 @@ class FeedbackClusterDiscussionUpdateView(RetrospectiveCycleFacilitatorMixin, Vi
             return redirect(self.get_success_url())
 
         return self.render_board(invalid_discussion_forms={cluster.pk: form})
+
+
+class ActionItemCreateView(RetrospectiveCycleFacilitatorMixin, View):
+    """Create one facilitator-managed manual action item for the discussion."""
+
+    def post(self, request, *args, **kwargs):
+        self.require_mutable_discussion()
+        self.require_posted_action_scope()
+        form = ActionItemForm(
+            request.POST,
+            cycle=self.get_cycle(),
+            auto_id="id_new_action_%s",
+        )
+        if form.is_valid():
+            form.save()
+            return redirect(self.get_success_url())
+
+        return self.render_board(invalid_action_item_create_form=form)
+
+
+class ActionItemUpdateView(RetrospectiveCycleFacilitatorMixin, View):
+    """Update one action item scoped to the requested retrospective cycle."""
+
+    def get_action_item(self):
+        if not hasattr(self, "_action_item"):
+            self._action_item = get_object_or_404(
+                self.get_cycle().action_items.all(),
+                pk=self.kwargs["action_item_id"],
+            )
+        return self._action_item
+
+    def post(self, request, *args, **kwargs):
+        self.require_mutable_discussion()
+        action_item = self.get_action_item()
+        self.require_posted_action_scope()
+        form = ActionItemForm(
+            request.POST,
+            instance=action_item,
+            cycle=self.get_cycle(),
+            auto_id=f"id_action_{action_item.pk}_%s",
+        )
+        if form.is_valid():
+            form.save()
+            return redirect(self.get_success_url())
+
+        return self.render_board(invalid_action_item_edit_forms={action_item.pk: form})
+
+
+class RetrospectiveDecisionCreateView(RetrospectiveCycleFacilitatorMixin, View):
+    """Create one facilitator-confirmed manual decision for the discussion."""
+
+    def post(self, request, *args, **kwargs):
+        self.require_mutable_discussion()
+        self.require_posted_decision_scope()
+        form = RetrospectiveDecisionForm(
+            request.POST,
+            cycle=self.get_cycle(),
+            auto_id="id_new_decision_%s",
+        )
+        if form.is_valid():
+            form.save()
+            return redirect(self.get_success_url())
+
+        return self.render_board(invalid_decision_create_form=form)
+
+
+class RetrospectiveDecisionUpdateView(RetrospectiveCycleFacilitatorMixin, View):
+    """Update one confirmed decision scoped to the requested cycle."""
+
+    def get_decision(self):
+        if not hasattr(self, "_decision"):
+            self._decision = get_object_or_404(
+                self.get_cycle().decisions.all(),
+                pk=self.kwargs["decision_id"],
+            )
+        return self._decision
+
+    def post(self, request, *args, **kwargs):
+        self.require_mutable_discussion()
+        decision = self.get_decision()
+        self.require_posted_decision_scope()
+        form = RetrospectiveDecisionForm(
+            request.POST,
+            instance=decision,
+            cycle=self.get_cycle(),
+            auto_id=f"id_decision_{decision.pk}_%s",
+        )
+        if form.is_valid():
+            form.save()
+            return redirect(self.get_success_url())
+
+        return self.render_board(invalid_decision_edit_forms={decision.pk: form})
 
 
 class FeedbackClusterCreateView(RetrospectiveCycleFacilitatorMixin, View):
