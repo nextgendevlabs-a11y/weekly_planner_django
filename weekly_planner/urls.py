@@ -21,6 +21,9 @@ from weekly_planner.views import (
     FeedbackClusterSuggestionIgnoreView,
     FeedbackCycleCreateView,
     FeedbackCycleRevealView,
+    FeedbackCycleVoteSubmitView,
+    FeedbackCycleVotingCloseView,
+    FeedbackCycleVotingOpenView,
     FeedbackSubmissionView,
     HomeView,
     ProjectDashboardView,
@@ -124,6 +127,21 @@ urlpatterns = [
         "projects/<int:project_id>/cycles/<int:cycle_id>/board/suggestions/ignore/",
         FeedbackClusterSuggestionIgnoreView.as_view(),
         name="feedback_cluster_suggestions_ignore",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/voting/open/",
+        FeedbackCycleVotingOpenView.as_view(),
+        name="feedback_cycle_voting_open",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/voting/submit/",
+        FeedbackCycleVoteSubmitView.as_view(),
+        name="feedback_cycle_vote_submit",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/voting/close/",
+        FeedbackCycleVotingCloseView.as_view(),
+        name="feedback_cycle_voting_close",
     ),
     path("admin/", admin.site.urls),
 ]

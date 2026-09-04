@@ -800,7 +800,6 @@ def test_board_omits_deferred_workflow_behavior_and_preserves_navigation(client)
     assert nav.nav_form_actions == [reverse("logout")]
     assert "ai-generated" not in content
     assert "ai suggestion" not in content
-    assert "voting" not in content
     assert "vote total" not in content
     assert "discussion notes" not in content
     assert "topic status" not in content

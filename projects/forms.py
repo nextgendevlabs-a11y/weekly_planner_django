@@ -197,3 +197,46 @@ class FeedbackClusterSuggestionDraftForm(forms.Form):
 
     def draft(self) -> dict:
         return {"clusters": self.cleaned_data["clusters"]}
+
+
+class FeedbackClusterVoteForm(forms.Form):
+    required_total = 3
+
+    def __init__(self, *args, cycle, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cycle = cycle
+        self.clusters = list(cycle.feedback_clusters.all())
+        self.valid_field_names = set()
+        for cluster in self.clusters:
+            field_name = self.field_name_for(cluster)
+            self.valid_field_names.add(field_name)
+            self.fields[field_name] = forms.IntegerField(
+                min_value=0,
+                max_value=self.required_total,
+                label=cluster.name,
+                error_messages={
+                    "required": "Enter a vote count for every cluster.",
+                    "invalid": "Vote counts must be whole numbers.",
+                    "min_value": "Vote counts cannot be negative.",
+                    "max_value": "No cluster can receive more than three votes.",
+                },
+            )
+
+    @staticmethod
+    def field_name_for(cluster):
+        return f"cluster_{cluster.pk}_votes"
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if self.errors:
+            return cleaned_data
+
+        total = sum(cleaned_data[field_name] for field_name in self.valid_field_names)
+        if total != self.required_total:
+            raise forms.ValidationError("Allocate exactly three votes.")
+
+        cleaned_data["allocations"] = {
+            cluster: cleaned_data[self.field_name_for(cluster)]
+            for cluster in self.clusters
+        }
+        return cleaned_data

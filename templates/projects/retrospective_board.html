@@ -9,7 +9,77 @@
       <p>{{ cycle.label }} retrospective board</p>
     </div>
 
-    {% if can_facilitate %}
+    <section class="status-section" aria-labelledby="voting-heading">
+      <div class="section-heading">
+        <h2 id="voting-heading">Topic voting</h2>
+        {% if voting_is_clustering %}
+          {% if clusters %}
+            <p class="status-note">Voting has not opened yet.</p>
+          {% else %}
+            <p class="empty-state">Create at least one cluster before opening voting.</p>
+          {% endif %}
+        {% elif voting_is_open %}
+          <p class="status-note">Voting is open. Allocate exactly three votes across the clusters.</p>
+        {% else %}
+          <p class="status-note">Voting is closed. Results are ready for discussion.</p>
+        {% endif %}
+      </div>
+
+      {% if can_open_voting %}
+        <form class="section-action" method="post" action="{% url 'feedback_cycle_voting_open' project_id=project.pk cycle_id=cycle.pk %}">
+          {% csrf_token %}
+          <button class="button" type="submit">Open voting</button>
+        </form>
+      {% endif %}
+
+      {% if voting_is_open and clusters %}
+        <form class="stack compact-stack" method="post" action="{% url 'feedback_cycle_vote_submit' project_id=project.pk cycle_id=cycle.pk %}">
+          {% csrf_token %}
+          {{ vote_form.non_field_errors }}
+          {% for field in vote_form %}
+            <div class="field">
+              {{ field.errors }}
+              {{ field.label_tag }}
+              {{ field }}
+            </div>
+          {% endfor %}
+          <button class="button" type="submit">Save votes</button>
+        </form>
+
+        {% if can_close_voting %}
+          <section class="compact-stack" aria-labelledby="voting-progress-heading">
+            <h3 id="voting-progress-heading">Voting progress</h3>
+            <ul class="submission-status-list">
+              {% for voter in voting_progress %}
+                <li>
+                  <span>{{ voter.label }}</span>
+                  <strong>{% if voter.has_voted %}Voted{% else %}Waiting{% endif %}</strong>
+                </li>
+              {% endfor %}
+            </ul>
+            <form class="section-action" method="post" action="{% url 'feedback_cycle_voting_close' project_id=project.pk cycle_id=cycle.pk %}">
+              {% csrf_token %}
+              <button class="button secondary-button" type="submit">Close voting</button>
+            </form>
+          </section>
+        {% endif %}
+      {% endif %}
+
+      {% if voting_is_closed %}
+        <ol class="cluster-list" aria-label="Ranked discussion agenda">
+          {% for cluster in ranked_clusters %}
+            <li class="cluster-panel">
+              <div class="cluster-panel__header">
+                <h3>{{ cluster.name }}</h3>
+                <p class="status-note">{{ cluster.vote_total }} vote{{ cluster.vote_total|pluralize }}</p>
+              </div>
+            </li>
+          {% endfor %}
+        </ol>
+      {% endif %}
+    </section>
+
+    {% if can_manage_clusters %}
       <section class="status-section" aria-labelledby="create-cluster-heading">
         <h2 id="create-cluster-heading">Create cluster</h2>
         <form class="inline-form" method="post" action="{% url 'feedback_cluster_create' project_id=project.pk cycle_id=cycle.pk %}">
@@ -131,7 +201,7 @@
               <div class="cluster-panel__header">
                 <h3 id="cluster-{{ cluster.id }}-heading">{{ cluster.name }}</h3>
 
-                {% if can_facilitate %}
+                {% if can_manage_clusters %}
                   <form class="inline-form" method="post" action="{% url 'feedback_cluster_rename' project_id=project.pk cycle_id=cycle.pk cluster_id=cluster.id %}">
                     {% csrf_token %}
                     {{ cluster.rename_form.non_field_errors }}
@@ -151,7 +221,7 @@
                     <li class="feedback-card">
                       <p>{{ card.text }}</p>
                       <p class="status-note">{{ card.category_label }} - {{ card.author_label }}</p>
-                      {% if can_facilitate %}
+                      {% if can_manage_clusters %}
                         <form class="inline-form compact-action" method="post" action="{% url 'feedback_card_move' project_id=project.pk cycle_id=cycle.pk card_id=card.id %}">
                           {% csrf_token %}
                           <label for="id_card_{{ card.id }}_cluster">Move card</label>
@@ -171,7 +241,7 @@
                 <p class="empty-state">No cards are in this cluster yet.</p>
               {% endif %}
 
-              {% if can_facilitate %}
+              {% if can_manage_clusters %}
                 <div class="cluster-actions">
                   <form class="inline-form" method="post" action="{% url 'feedback_cluster_merge' project_id=project.pk cycle_id=cycle.pk cluster_id=cluster.id %}">
                     {% csrf_token %}
@@ -233,7 +303,7 @@
                   <li class="feedback-card">
                     <p>{{ card.text }}</p>
                     <p class="status-note">{{ card.author_label }}</p>
-                    {% if can_facilitate %}
+                    {% if can_manage_clusters %}
                       <form class="inline-form compact-action" method="post" action="{% url 'feedback_card_move' project_id=project.pk cycle_id=cycle.pk card_id=card.id %}">
                         {% csrf_token %}
                         <label for="id_card_{{ card.id }}_cluster">Move card</label>

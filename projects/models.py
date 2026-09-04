@@ -59,6 +59,11 @@ class FeedbackCycle(models.Model):
         RETROSPECTIVE = "retrospective", "Retrospective"
         COMPLETED = "completed", "Completed"
 
+    class VotingStatus(models.TextChoices):
+        CLUSTERING = "clustering", "Clustering"
+        OPEN = "open", "Voting open"
+        CLOSED = "closed", "Voting closed"
+
     project = models.ForeignKey(
         Project,
         on_delete=models.CASCADE,
@@ -74,6 +79,11 @@ class FeedbackCycle(models.Model):
         max_length=32,
         choices=Status.choices,
         default=Status.COLLECTING_FEEDBACK,
+    )
+    voting_status = models.CharField(
+        max_length=16,
+        choices=VotingStatus.choices,
+        default=VotingStatus.CLUSTERING,
     )
     opens_at = models.DateTimeField()
     closes_at = models.DateTimeField(blank=True, null=True)
@@ -92,6 +102,10 @@ class FeedbackCycle(models.Model):
                     ]
                 ),
                 name="feedback_cycle_status_is_mvp_status",
+            ),
+            models.CheckConstraint(
+                condition=Q(voting_status__in=["clustering", "open", "closed"]),
+                name="feedback_cycle_voting_status_is_mvp_status",
             ),
             models.CheckConstraint(
                 condition=Q(closes_at__isnull=True) | Q(closes_at__gte=models.F("opens_at")),
@@ -114,6 +128,14 @@ class FeedbackCycle(models.Model):
     @property
     def is_completed(self) -> bool:
         return self.status == self.Status.COMPLETED
+
+    @property
+    def is_voting_open(self) -> bool:
+        return self.voting_status == self.VotingStatus.OPEN
+
+    @property
+    def is_voting_closed(self) -> bool:
+        return self.voting_status == self.VotingStatus.CLOSED
 
     def __str__(self) -> str:
         return f"{self.label} ({self.project})"
@@ -197,3 +219,51 @@ class FeedbackCard(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_category_display()} feedback by {self.author} for {self.cycle}"
+
+
+class FeedbackClusterVote(models.Model):
+    cycle = models.ForeignKey(
+        FeedbackCycle,
+        on_delete=models.CASCADE,
+        related_name="cluster_votes",
+    )
+    voter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="feedback_cluster_votes",
+    )
+    cluster = models.ForeignKey(
+        FeedbackCluster,
+        on_delete=models.CASCADE,
+        related_name="votes",
+    )
+    vote_count = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["cycle", "voter", "cluster"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["cycle", "voter", "cluster"],
+                name="unique_feedback_cluster_vote_allocation",
+            ),
+            models.CheckConstraint(
+                condition=Q(vote_count__gte=0) & Q(vote_count__lte=3),
+                name="feedback_cluster_vote_count_is_three_vote_budget",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if (
+            self.cluster_id is not None
+            and self.cycle_id is not None
+            and self.cluster.cycle_id != self.cycle_id
+        ):
+            raise ValidationError(
+                {"cluster": "Vote cluster must belong to the same feedback cycle."}
+            )
+
+    def __str__(self) -> str:
+        return f"{self.voter} vote for {self.cluster}"

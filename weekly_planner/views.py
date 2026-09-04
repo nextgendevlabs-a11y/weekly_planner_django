@@ -18,6 +18,7 @@ from projects.forms import (
     FeedbackClusterForm,
     FeedbackClusterSplitForm,
     FeedbackClusterSuggestionDraftForm,
+    FeedbackClusterVoteForm,
     FeedbackCycleCreateForm,
 )
 from projects.cluster_suggestions import draft_from_suggestions, get_clustering_service
@@ -29,6 +30,14 @@ from projects.retrospective_board import (
     suggestion_draft_context_for,
 )
 from projects.submission_progress import submission_progress_for
+from projects.voting import (
+    close_voting,
+    open_voting,
+    ranked_clusters_for,
+    save_vote_allocation,
+    saved_vote_allocation_for,
+    voting_progress_for,
+)
 
 
 SUGGESTION_DRAFT_SESSION_KEY = "feedback_cluster_suggestion_drafts"
@@ -81,6 +90,18 @@ def _draft_from_post_for_render(data, cycle):
 
 def _form_errors(form):
     return [str(error) for error in form.non_field_errors()]
+
+
+def _posted_vote_cluster_ids(data):
+    cluster_ids = set()
+    for key in data:
+        if not key.startswith("cluster_") or not key.endswith("_votes"):
+            continue
+        cluster_id_value = key.removeprefix("cluster_").removesuffix("_votes")
+        if not cluster_id_value.isdigit():
+            raise Http404("No vote cluster matches the given query.")
+        cluster_ids.add(int(cluster_id_value))
+    return cluster_ids
 
 
 class HomeView(TemplateView):
@@ -471,6 +492,7 @@ class RetrospectiveCycleFacilitatorMixin(LoginRequiredMixin):
         suggestion_draft=None,
         suggestion_errors=None,
         suggestion_empty_message="",
+        invalid_vote_form=None,
     ):
         view = RetrospectiveBoardView()
         view.setup(self.request, *self.args, **self.kwargs)
@@ -482,8 +504,13 @@ class RetrospectiveCycleFacilitatorMixin(LoginRequiredMixin):
             suggestion_draft=suggestion_draft,
             suggestion_errors=suggestion_errors or [],
             suggestion_empty_message=suggestion_empty_message,
+            invalid_vote_form=invalid_vote_form,
         )
         return view.render_to_response(context)
+
+    def require_mutable_clustering(self):
+        if self.get_cycle().voting_status != FeedbackCycle.VotingStatus.CLUSTERING:
+            raise Http404("No editable clustering stage matches the given query.")
 
 
 class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
@@ -499,6 +526,10 @@ class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
         invalid_split_forms = kwargs.get("invalid_split_forms", {})
         merge_errors = kwargs.get("merge_errors", {})
         can_facilitate = can_facilitate_project(self.request.user, self.get_project())
+        can_manage_clusters = (
+            can_facilitate
+            and cycle.voting_status == FeedbackCycle.VotingStatus.CLUSTERING
+        )
 
         for cluster in board_context["clusters"]:
             cluster_id = cluster["id"]
@@ -522,6 +553,7 @@ class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
         context["project"] = self.get_project()
         context["cycle"] = cycle
         context["can_facilitate"] = can_facilitate
+        context["can_manage_clusters"] = can_manage_clusters
         context["cluster_create_form"] = kwargs.get(
             "invalid_create_form",
             FeedbackClusterForm(cycle=cycle, auto_id="id_new_cluster_%s"),
@@ -532,11 +564,50 @@ class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
             for cluster in board_context["clusters"]
         ]
         context["category_sections"] = board_context["ungrouped_sections"]
+        context["voting_status"] = cycle.voting_status
+        context["voting_is_clustering"] = (
+            cycle.voting_status == FeedbackCycle.VotingStatus.CLUSTERING
+        )
+        context["voting_is_open"] = (
+            cycle.voting_status == FeedbackCycle.VotingStatus.OPEN
+        )
+        context["voting_is_closed"] = (
+            cycle.voting_status == FeedbackCycle.VotingStatus.CLOSED
+        )
+        context["can_open_voting"] = can_manage_clusters and bool(
+            board_context["clusters"]
+        )
+        context["can_close_voting"] = (
+            can_facilitate
+            and cycle.voting_status == FeedbackCycle.VotingStatus.OPEN
+        )
+        vote_initial = {
+            f"cluster_{cluster_id}_votes": vote_count
+            for cluster_id, vote_count in saved_vote_allocation_for(
+                cycle, self.request.user
+            ).items()
+        }
+        context["vote_form"] = kwargs.get(
+            "invalid_vote_form",
+            FeedbackClusterVoteForm(
+                cycle=cycle,
+                initial=vote_initial,
+                auto_id="id_vote_%s",
+            ),
+        )
+        context["voting_progress"] = (
+            voting_progress_for(cycle) if context["can_close_voting"] else []
+        )
+        context["ranked_clusters"] = (
+            ranked_clusters_for(cycle)
+            if cycle.voting_status == FeedbackCycle.VotingStatus.CLOSED
+            else []
+        )
         suggestion_draft = kwargs.get("suggestion_draft")
-        if suggestion_draft is None and can_facilitate:
+        if suggestion_draft is None and can_manage_clusters:
             suggestion_draft = _saved_suggestion_draft(self.request, cycle)
         context["suggestion_draft"] = None
-        if can_facilitate and suggestion_draft is not None:
+        if can_manage_clusters and suggestion_draft is not None:
             context["suggestion_draft"] = suggestion_draft_context_for(
                 cycle,
                 suggestion_draft,
@@ -550,6 +621,7 @@ class FeedbackClusterCreateView(RetrospectiveCycleFacilitatorMixin, View):
     """Create one manual cluster on a revealed retrospective board."""
 
     def post(self, request, *args, **kwargs):
+        self.require_mutable_clustering()
         form = FeedbackClusterForm(
             request.POST,
             cycle=self.get_cycle(),
@@ -574,6 +646,7 @@ class FeedbackClusterRenameView(RetrospectiveCycleFacilitatorMixin, View):
         return self._cluster
 
     def post(self, request, *args, **kwargs):
+        self.require_mutable_clustering()
         cluster = self.get_cluster()
         form = FeedbackClusterForm(
             request.POST,
@@ -609,6 +682,7 @@ class FeedbackCardClusterMoveView(RetrospectiveCycleFacilitatorMixin, View):
         )
 
     def post(self, request, *args, **kwargs):
+        self.require_mutable_clustering()
         card = self.get_card()
         target_cluster = self.get_target_cluster()
         FeedbackCard.objects.filter(pk=card.pk).update(cluster=target_cluster)
@@ -634,6 +708,7 @@ class FeedbackClusterMergeView(RetrospectiveCycleFacilitatorMixin, View):
         )
 
     def post(self, request, *args, **kwargs):
+        self.require_mutable_clustering()
         source_cluster = self.get_source_cluster()
         target_cluster = self.get_target_cluster()
         if source_cluster.pk == target_cluster.pk:
@@ -663,6 +738,7 @@ class FeedbackClusterSplitView(RetrospectiveCycleFacilitatorMixin, View):
         return self._cluster
 
     def post(self, request, *args, **kwargs):
+        self.require_mutable_clustering()
         cluster = self.get_cluster()
         form = FeedbackClusterSplitForm(
             request.POST,
@@ -684,6 +760,7 @@ class FeedbackClusterSuggestionGenerateView(RetrospectiveCycleFacilitatorMixin, 
     """Create or refresh an editable draft of local clustering suggestions."""
 
     def post(self, request, *args, **kwargs):
+        self.require_mutable_clustering()
         cycle = self.get_cycle()
         if not cycle.feedback_cards.exists():
             draft = {
@@ -705,6 +782,7 @@ class FeedbackClusterSuggestionEditView(RetrospectiveCycleFacilitatorMixin, View
     """Preview facilitator edits to draft suggestion names and card membership."""
 
     def post(self, request, *args, **kwargs):
+        self.require_mutable_clustering()
         form = FeedbackClusterSuggestionDraftForm(
             request.POST,
             cycle=self.get_cycle(),
@@ -725,6 +803,7 @@ class FeedbackClusterSuggestionAcceptView(RetrospectiveCycleFacilitatorMixin, Vi
     """Accept an edited draft as regular manual clusters on the board."""
 
     def post(self, request, *args, **kwargs):
+        self.require_mutable_clustering()
         cycle = self.get_cycle()
         form = FeedbackClusterSuggestionDraftForm(
             request.POST,
@@ -758,5 +837,55 @@ class FeedbackClusterSuggestionIgnoreView(RetrospectiveCycleFacilitatorMixin, Vi
     """Discard the current draft suggestions without changing board state."""
 
     def post(self, request, *args, **kwargs):
+        self.require_mutable_clustering()
         _clear_suggestion_draft(request, self.get_cycle())
+        return redirect(self.get_success_url())
+
+
+class FeedbackCycleVotingOpenView(RetrospectiveCycleFacilitatorMixin, View):
+    """Facilitator-only action that opens voting after clustering."""
+
+    def post(self, request, *args, **kwargs):
+        if not open_voting(self.get_cycle()):
+            raise Http404("No openable voting stage matches the given query.")
+        return redirect(self.get_success_url())
+
+
+class FeedbackCycleVotingCloseView(RetrospectiveCycleFacilitatorMixin, View):
+    """Facilitator-only action that closes voting early."""
+
+    def post(self, request, *args, **kwargs):
+        if not close_voting(self.get_cycle()):
+            raise Http404("No closable voting stage matches the given query.")
+        return redirect(self.get_success_url())
+
+
+class FeedbackCycleVoteSubmitView(RetrospectiveCycleMemberMixin, View):
+    """Save one member's three-vote allocation for the revealed cycle."""
+
+    def post(self, request, *args, **kwargs):
+        cycle = self.get_cycle()
+        if (
+            cycle.voting_status != FeedbackCycle.VotingStatus.OPEN
+            or not cycle.feedback_clusters.exists()
+        ):
+            raise Http404("No votable cycle matches the given query.")
+
+        valid_cluster_ids = set(cycle.feedback_clusters.values_list("id", flat=True))
+        if _posted_vote_cluster_ids(request.POST) - valid_cluster_ids:
+            raise Http404("No vote cluster matches the given query.")
+
+        form = FeedbackClusterVoteForm(
+            request.POST,
+            cycle=cycle,
+            auto_id="id_vote_%s",
+        )
+        if not form.is_valid():
+            return RetrospectiveCycleFacilitatorMixin.render_board(
+                self,
+                invalid_vote_form=form,
+            )
+
+        if not save_vote_allocation(cycle, request.user, form.cleaned_data["allocations"]):
+            raise Http404("No votable cycle matches the given query.")
         return redirect(self.get_success_url())

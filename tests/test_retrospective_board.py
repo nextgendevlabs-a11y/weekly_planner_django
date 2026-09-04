@@ -634,7 +634,6 @@ def test_board_shows_all_revealed_cards_grouped_and_preserves_anonymity(client):
     assert "Team submission progress" not in content
     assert "Reveal feedback" not in content
     assert "clustering" not in content.lower()
-    assert "voting" not in content.lower()
     assert "discussion" not in content.lower()
     assert "meeting upload" not in content.lower()
     assert "extracted outcomes" not in content.lower()
