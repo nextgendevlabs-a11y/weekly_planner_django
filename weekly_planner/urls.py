@@ -12,6 +12,7 @@ from weekly_planner.views import (
     FeedbackCardClusterMoveView,
     FeedbackCardUpdateView,
     FeedbackClusterCreateView,
+    FeedbackClusterDiscussionUpdateView,
     FeedbackClusterMergeView,
     FeedbackClusterRenameView,
     FeedbackClusterSplitView,
@@ -142,6 +143,11 @@ urlpatterns = [
         "projects/<int:project_id>/cycles/<int:cycle_id>/board/voting/close/",
         FeedbackCycleVotingCloseView.as_view(),
         name="feedback_cycle_voting_close",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/discussion/topics/<int:cluster_id>/",
+        FeedbackClusterDiscussionUpdateView.as_view(),
+        name="feedback_cluster_discussion_update",
     ),
     path("admin/", admin.site.urls),
 ]

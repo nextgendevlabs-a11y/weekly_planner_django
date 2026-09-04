@@ -112,6 +112,48 @@ class FeedbackClusterForm(forms.ModelForm):
         return cluster
 
 
+class FeedbackClusterDiscussionForm(forms.Form):
+    discussion_status = forms.ChoiceField(
+        choices=FeedbackCluster.DiscussionStatus.choices,
+        required=False,
+        label="Topic status",
+        error_messages={
+            "invalid_choice": "Choose a valid discussion status.",
+        },
+    )
+    discussion_notes = forms.CharField(
+        required=False,
+        label="Discussion notes",
+        widget=forms.Textarea(attrs={"rows": 4}),
+    )
+
+    def __init__(self, *args, cluster, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cluster = cluster
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if self.errors:
+            return cleaned_data
+
+        if not cleaned_data.get("discussion_status"):
+            cleaned_data["discussion_status"] = self.cluster.discussion_status
+        cleaned_data["discussion_notes"] = cleaned_data.get("discussion_notes", "").strip()
+        return cleaned_data
+
+    def save(self):
+        self.cluster.discussion_status = self.cleaned_data["discussion_status"]
+        self.cluster.discussion_notes = self.cleaned_data["discussion_notes"]
+        self.cluster.save(
+            update_fields=[
+                "discussion_status",
+                "discussion_notes",
+                "updated_at",
+            ]
+        )
+        return self.cluster
+
+
 class FeedbackClusterSplitForm(forms.Form):
     name = forms.CharField(
         label="New cluster name",

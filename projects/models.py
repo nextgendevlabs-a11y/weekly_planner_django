@@ -142,17 +142,42 @@ class FeedbackCycle(models.Model):
 
 
 class FeedbackCluster(models.Model):
+    class DiscussionStatus(models.TextChoices):
+        PENDING = "pending", "Not started"
+        DISCUSSED = "discussed", "Discussed"
+        SKIPPED = "skipped", "Skipped"
+        DEFERRED = "deferred", "Deferred"
+
     cycle = models.ForeignKey(
         FeedbackCycle,
         on_delete=models.CASCADE,
         related_name="feedback_clusters",
     )
     name = models.CharField(max_length=255)
+    discussion_status = models.CharField(
+        max_length=16,
+        choices=DiscussionStatus.choices,
+        default=DiscussionStatus.PENDING,
+    )
+    discussion_notes = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["created_at", "id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(
+                    discussion_status__in=[
+                        "pending",
+                        "discussed",
+                        "skipped",
+                        "deferred",
+                    ]
+                ),
+                name="feedback_cluster_discussion_status_is_mvp_status",
+            ),
+        ]
 
     def clean(self):
         super().clean()

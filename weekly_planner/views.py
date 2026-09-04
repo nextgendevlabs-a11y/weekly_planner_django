@@ -15,6 +15,7 @@ from django.views.generic import View
 
 from projects.forms import (
     FeedbackCardForm,
+    FeedbackClusterDiscussionForm,
     FeedbackClusterForm,
     FeedbackClusterSplitForm,
     FeedbackClusterSuggestionDraftForm,
@@ -493,6 +494,7 @@ class RetrospectiveCycleFacilitatorMixin(LoginRequiredMixin):
         suggestion_errors=None,
         suggestion_empty_message="",
         invalid_vote_form=None,
+        invalid_discussion_forms=None,
     ):
         view = RetrospectiveBoardView()
         view.setup(self.request, *self.args, **self.kwargs)
@@ -505,12 +507,17 @@ class RetrospectiveCycleFacilitatorMixin(LoginRequiredMixin):
             suggestion_errors=suggestion_errors or [],
             suggestion_empty_message=suggestion_empty_message,
             invalid_vote_form=invalid_vote_form,
+            invalid_discussion_forms=invalid_discussion_forms or {},
         )
         return view.render_to_response(context)
 
     def require_mutable_clustering(self):
         if self.get_cycle().voting_status != FeedbackCycle.VotingStatus.CLUSTERING:
             raise Http404("No editable clustering stage matches the given query.")
+
+    def require_mutable_discussion(self):
+        if self.get_cycle().voting_status != FeedbackCycle.VotingStatus.CLOSED:
+            raise Http404("No editable discussion stage matches the given query.")
 
 
 class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
@@ -525,10 +532,15 @@ class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
         invalid_rename_forms = kwargs.get("invalid_rename_forms", {})
         invalid_split_forms = kwargs.get("invalid_split_forms", {})
         merge_errors = kwargs.get("merge_errors", {})
+        invalid_discussion_forms = kwargs.get("invalid_discussion_forms", {})
         can_facilitate = can_facilitate_project(self.request.user, self.get_project())
         can_manage_clusters = (
             can_facilitate
             and cycle.voting_status == FeedbackCycle.VotingStatus.CLUSTERING
+        )
+        can_manage_discussion = (
+            can_facilitate
+            and cycle.voting_status == FeedbackCycle.VotingStatus.CLOSED
         )
 
         for cluster in board_context["clusters"]:
@@ -598,11 +610,30 @@ class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
         context["voting_progress"] = (
             voting_progress_for(cycle) if context["can_close_voting"] else []
         )
-        context["ranked_clusters"] = (
+        ranked_clusters = (
             ranked_clusters_for(cycle)
             if cycle.voting_status == FeedbackCycle.VotingStatus.CLOSED
             else []
         )
+        for topic in ranked_clusters:
+            cluster = topic["object"]
+            topic["discussion_status"] = cluster.discussion_status
+            topic["discussion_status_label"] = cluster.get_discussion_status_display()
+            topic["discussion_notes"] = cluster.discussion_notes
+            topic["discussion_form"] = invalid_discussion_forms.get(
+                cluster.pk,
+                FeedbackClusterDiscussionForm(
+                    cluster=cluster,
+                    initial={
+                        "discussion_status": cluster.discussion_status,
+                        "discussion_notes": cluster.discussion_notes,
+                    },
+                    auto_id=f"id_discussion_{cluster.pk}_%s",
+                ),
+            )
+        context["ranked_clusters"] = ranked_clusters
+        context["discussion_topics"] = ranked_clusters
+        context["can_manage_discussion"] = can_manage_discussion
         suggestion_draft = kwargs.get("suggestion_draft")
         if suggestion_draft is None and can_manage_clusters:
             suggestion_draft = _saved_suggestion_draft(self.request, cycle)
@@ -615,6 +646,32 @@ class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
                 empty_message=kwargs.get("suggestion_empty_message", ""),
             )
         return context
+
+
+class FeedbackClusterDiscussionUpdateView(RetrospectiveCycleFacilitatorMixin, View):
+    """Save facilitator-managed discussion status and notes for one topic."""
+
+    def get_cluster(self):
+        if not hasattr(self, "_cluster"):
+            self._cluster = get_object_or_404(
+                self.get_cycle().feedback_clusters.all(),
+                pk=self.kwargs["cluster_id"],
+            )
+        return self._cluster
+
+    def post(self, request, *args, **kwargs):
+        self.require_mutable_discussion()
+        cluster = self.get_cluster()
+        form = FeedbackClusterDiscussionForm(
+            request.POST,
+            cluster=cluster,
+            auto_id=f"id_discussion_{cluster.pk}_%s",
+        )
+        if form.is_valid():
+            form.save()
+            return redirect(self.get_success_url())
+
+        return self.render_board(invalid_discussion_forms={cluster.pk: form})
 
 
 class FeedbackClusterCreateView(RetrospectiveCycleFacilitatorMixin, View):

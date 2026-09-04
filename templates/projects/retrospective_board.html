@@ -67,12 +67,41 @@
 
       {% if voting_is_closed %}
         <ol class="cluster-list" aria-label="Ranked discussion agenda">
-          {% for cluster in ranked_clusters %}
+          {% for cluster in discussion_topics %}
             <li class="cluster-panel">
               <div class="cluster-panel__header">
                 <h3>{{ cluster.name }}</h3>
                 <p class="status-note">{{ cluster.vote_total }} vote{{ cluster.vote_total|pluralize }}</p>
               </div>
+              <div class="compact-stack">
+                <p><strong>Topic status:</strong> {{ cluster.discussion_status_label }}</p>
+                <div>
+                  <h4>Discussion notes</h4>
+                  {% if cluster.discussion_notes %}
+                    <p>{{ cluster.discussion_notes|linebreaksbr }}</p>
+                  {% else %}
+                    <p class="empty-state">No discussion notes saved.</p>
+                  {% endif %}
+                </div>
+              </div>
+
+              {% if can_manage_discussion %}
+                <form class="stack compact-stack compact-action" method="post" action="{% url 'feedback_cluster_discussion_update' project_id=project.pk cycle_id=cycle.pk cluster_id=cluster.id %}">
+                  {% csrf_token %}
+                  {{ cluster.discussion_form.non_field_errors }}
+                  <div class="field">
+                    {{ cluster.discussion_form.discussion_status.errors }}
+                    {{ cluster.discussion_form.discussion_status.label_tag }}
+                    {{ cluster.discussion_form.discussion_status }}
+                  </div>
+                  <div class="field">
+                    {{ cluster.discussion_form.discussion_notes.errors }}
+                    {{ cluster.discussion_form.discussion_notes.label_tag }}
+                    {{ cluster.discussion_form.discussion_notes }}
+                  </div>
+                  <button class="button secondary-button" type="submit">Save discussion topic</button>
+                </form>
+              {% endif %}
             </li>
           {% endfor %}
         </ol>
