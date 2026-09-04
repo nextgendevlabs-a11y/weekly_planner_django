@@ -30,6 +30,7 @@ from weekly_planner.views import (
     FeedbackCycleVotingOpenView,
     FeedbackSubmissionView,
     HomeView,
+    MeetingMaterialCreateView,
     ProjectDashboardView,
     ProjectsView,
     RetrospectiveBoardView,
@@ -148,6 +149,11 @@ urlpatterns = [
         "projects/<int:project_id>/cycles/<int:cycle_id>/board/voting/close/",
         FeedbackCycleVotingCloseView.as_view(),
         name="feedback_cycle_voting_close",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/meeting-materials/add/",
+        MeetingMaterialCreateView.as_view(),
+        name="meeting_material_create",
     ),
     path(
         "projects/<int:project_id>/cycles/<int:cycle_id>/board/discussion/topics/<int:cluster_id>/",

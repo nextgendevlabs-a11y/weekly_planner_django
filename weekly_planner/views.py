@@ -2,6 +2,7 @@
 
 from django.contrib.auth import login
 from django.contrib.auth.forms import UserCreationForm
+from django.core.exceptions import RequestDataTooBig
 from django.db import transaction
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404
@@ -22,6 +23,7 @@ from projects.forms import (
     FeedbackClusterSuggestionDraftForm,
     FeedbackClusterVoteForm,
     FeedbackCycleCreateForm,
+    MeetingMaterialForm,
     RetrospectiveDecisionForm,
 )
 from projects.cluster_suggestions import draft_from_suggestions, get_clustering_service
@@ -567,6 +569,7 @@ class RetrospectiveCycleFacilitatorMixin(LoginRequiredMixin):
         invalid_action_item_edit_forms=None,
         invalid_decision_create_form=None,
         invalid_decision_edit_forms=None,
+        invalid_meeting_material_form=None,
     ):
         view = RetrospectiveBoardView()
         view.setup(self.request, *self.args, **self.kwargs)
@@ -584,6 +587,7 @@ class RetrospectiveCycleFacilitatorMixin(LoginRequiredMixin):
             invalid_action_item_edit_forms=invalid_action_item_edit_forms or {},
             invalid_decision_create_form=invalid_decision_create_form,
             invalid_decision_edit_forms=invalid_decision_edit_forms or {},
+            invalid_meeting_material_form=invalid_meeting_material_form,
         )
         return view.render_to_response(context)
 
@@ -790,6 +794,23 @@ class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
             "invalid_decision_create_form",
             RetrospectiveDecisionForm(cycle=cycle, auto_id="id_new_decision_%s"),
         )
+        meeting_materials = []
+        if cycle.voting_status == FeedbackCycle.VotingStatus.CLOSED:
+            meeting_materials = list(
+                cycle.meeting_materials.select_related("submitted_by").order_by(
+                    "-created_at",
+                    "-id",
+                )
+            )
+        context["meeting_materials"] = meeting_materials
+        context["meeting_material_form"] = kwargs.get(
+            "invalid_meeting_material_form",
+            MeetingMaterialForm(
+                cycle=cycle,
+                submitter=self.request.user,
+                auto_id="id_meeting_material_%s",
+            ),
+        )
         suggestion_draft = kwargs.get("suggestion_draft")
         if suggestion_draft is None and can_manage_clusters:
             suggestion_draft = _saved_suggestion_draft(self.request, cycle)
@@ -802,6 +823,41 @@ class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
                 empty_message=kwargs.get("suggestion_empty_message", ""),
             )
         return context
+
+
+class MeetingMaterialCreateView(RetrospectiveCycleFacilitatorMixin, View):
+    """Create one facilitator-submitted meeting material record."""
+
+    def post(self, request, *args, **kwargs):
+        self.require_mutable_discussion()
+        try:
+            form = MeetingMaterialForm(
+                request.POST,
+                request.FILES,
+                cycle=self.get_cycle(),
+                submitter=request.user,
+                auto_id="id_meeting_material_%s",
+            )
+        except RequestDataTooBig:
+            form = MeetingMaterialForm(
+                {},
+                {},
+                cycle=self.get_cycle(),
+                submitter=request.user,
+                auto_id="id_meeting_material_%s",
+            )
+            form.is_valid()
+            form.add_error(
+                None,
+                "Pasted transcript exceeds the configured upload limit.",
+            )
+            return self.render_board(invalid_meeting_material_form=form)
+
+        if form.is_valid():
+            form.save()
+            return redirect(self.get_success_url())
+
+        return self.render_board(invalid_meeting_material_form=form)
 
 
 class FeedbackClusterDiscussionUpdateView(RetrospectiveCycleFacilitatorMixin, View):

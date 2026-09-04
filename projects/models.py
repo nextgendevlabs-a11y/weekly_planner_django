@@ -4,6 +4,10 @@ from django.db import models
 from django.db.models import Q
 
 
+def meeting_material_upload_path(instance, filename):
+    return f"meeting_materials/{instance.cycle_id}/{filename}"
+
+
 class Project(models.Model):
     name = models.CharField(max_length=255)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -294,6 +298,130 @@ class RetrospectiveDecision(models.Model):
 
     def __str__(self) -> str:
         return self.text
+
+
+class MeetingMaterial(models.Model):
+    class SourceType(models.TextChoices):
+        AUDIO_UPLOAD = "audio_upload", "Audio upload"
+        VIDEO_UPLOAD = "video_upload", "Video upload"
+        TRANSCRIPT_FILE = "transcript_file", "Transcript file"
+        PASTED_TRANSCRIPT = "pasted_transcript", "Pasted transcript"
+
+    class ProcessingStatus(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        PROCESSING = "processing", "Processing"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+
+    cycle = models.ForeignKey(
+        FeedbackCycle,
+        on_delete=models.CASCADE,
+        related_name="meeting_materials",
+    )
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="submitted_meeting_materials",
+    )
+    source_type = models.CharField(
+        max_length=32,
+        choices=SourceType.choices,
+    )
+    processing_status = models.CharField(
+        max_length=16,
+        choices=ProcessingStatus.choices,
+        default=ProcessingStatus.QUEUED,
+    )
+    source_file = models.FileField(
+        upload_to=meeting_material_upload_path,
+        blank=True,
+    )
+    original_filename = models.CharField(max_length=255, blank=True, default="")
+    content_type = models.CharField(max_length=255, blank=True, default="")
+    byte_size = models.PositiveBigIntegerField(blank=True, null=True)
+    pasted_transcript_text = models.TextField(blank=True, default="")
+    text_character_count = models.PositiveIntegerField(default=0)
+    failure_message = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(
+                    source_type__in=[
+                        "audio_upload",
+                        "video_upload",
+                        "transcript_file",
+                        "pasted_transcript",
+                    ]
+                ),
+                name="meeting_material_source_type_is_mvp_type",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    processing_status__in=[
+                        "queued",
+                        "processing",
+                        "succeeded",
+                        "failed",
+                    ]
+                ),
+                name="meeting_material_status_is_mvp_status",
+            ),
+        ]
+
+    @property
+    def source_label(self) -> str:
+        if self.source_type == self.SourceType.PASTED_TRANSCRIPT:
+            return "Pasted transcript"
+        return self.original_filename or self.get_source_type_display()
+
+    def clean(self):
+        super().clean()
+        if self.source_type == self.SourceType.PASTED_TRANSCRIPT:
+            transcript_text = self.pasted_transcript_text.strip()
+            if not transcript_text:
+                raise ValidationError(
+                    {"pasted_transcript_text": "Pasted transcript cannot be empty."}
+                )
+            if self.source_file:
+                raise ValidationError(
+                    {"source_file": "Pasted transcript records cannot include a file."}
+                )
+            self.pasted_transcript_text = transcript_text
+            self.text_character_count = len(transcript_text)
+            self.original_filename = ""
+            self.content_type = ""
+            self.byte_size = None
+            return
+
+        if self.source_type in {
+            self.SourceType.AUDIO_UPLOAD,
+            self.SourceType.VIDEO_UPLOAD,
+            self.SourceType.TRANSCRIPT_FILE,
+        }:
+            if not self.source_file:
+                raise ValidationError({"source_file": "Uploaded source file is required."})
+            if not self.original_filename:
+                raise ValidationError(
+                    {"original_filename": "Original filename is required."}
+                )
+            if self.byte_size is None:
+                raise ValidationError({"byte_size": "Uploaded file size is required."})
+            if self.pasted_transcript_text:
+                raise ValidationError(
+                    {
+                        "pasted_transcript_text": (
+                            "Uploaded source records cannot include pasted transcript text."
+                        )
+                    }
+                )
+            self.text_character_count = 0
+
+    def __str__(self) -> str:
+        return f"{self.get_source_type_display()} for {self.cycle}"
 
 
 class FeedbackCard(models.Model):

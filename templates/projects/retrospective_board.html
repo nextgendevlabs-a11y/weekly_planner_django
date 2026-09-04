@@ -253,6 +253,79 @@
             {% endif %}
           </section>
         </section>
+
+        <section class="stack compact-action" aria-labelledby="meeting-material-heading">
+          <div class="section-heading">
+            <h2 id="meeting-material-heading">Meeting material</h2>
+            <p class="status-note">Submitted records and current processing status for this retrospective.</p>
+          </div>
+
+          {% if meeting_materials %}
+            <ul class="feedback-card-list" aria-label="Meeting material status">
+              {% for material in meeting_materials %}
+                <li class="feedback-card">
+                  <p><strong>{{ material.get_source_type_display }}</strong></p>
+                  <p class="status-note">
+                    Source:
+                    {% if can_manage_discussion and material.source_file %}
+                      <a href="{{ material.source_file.url }}">{{ material.source_label }}</a>
+                    {% else %}
+                      {{ material.source_label }}
+                    {% endif %}
+                    |
+                    Submitted by: {{ material.submitted_by.get_username }} |
+                    Submitted: {{ material.created_at }} |
+                    Status: {{ material.get_processing_status_display }}
+                  </p>
+                  {% if can_manage_discussion %}
+                    {% if material.content_type or material.byte_size %}
+                      <p class="status-note">
+                        Content type: {% if material.content_type %}{{ material.content_type }}{% else %}Not provided{% endif %} |
+                        Size: {% if material.byte_size %}{{ material.byte_size }} bytes{% else %}Not recorded{% endif %}
+                      </p>
+                    {% elif material.source_type == "pasted_transcript" %}
+                      <p class="status-note">{{ material.text_character_count }} character{{ material.text_character_count|pluralize }} pasted.</p>
+                      <pre>{{ material.pasted_transcript_text }}</pre>
+                    {% endif %}
+                  {% endif %}
+                  {% if material.processing_status == "failed" and material.failure_message %}
+                    <p class="status-note">Failure: {{ material.failure_message }}</p>
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="empty-state">No meeting material has been submitted yet.</p>
+          {% endif %}
+
+          {% if can_manage_discussion %}
+            <form class="stack compact-stack compact-action" method="post" enctype="multipart/form-data" action="{% url 'meeting_material_create' project_id=project.pk cycle_id=cycle.pk %}">
+              {% csrf_token %}
+              {{ meeting_material_form.non_field_errors }}
+              <div class="field">
+                {{ meeting_material_form.audio_file.errors }}
+                {{ meeting_material_form.audio_file.label_tag }}
+                {{ meeting_material_form.audio_file }}
+              </div>
+              <div class="field">
+                {{ meeting_material_form.video_file.errors }}
+                {{ meeting_material_form.video_file.label_tag }}
+                {{ meeting_material_form.video_file }}
+              </div>
+              <div class="field">
+                {{ meeting_material_form.transcript_file.errors }}
+                {{ meeting_material_form.transcript_file.label_tag }}
+                {{ meeting_material_form.transcript_file }}
+              </div>
+              <div class="field">
+                {{ meeting_material_form.pasted_transcript.errors }}
+                {{ meeting_material_form.pasted_transcript.label_tag }}
+                {{ meeting_material_form.pasted_transcript }}
+              </div>
+              <button class="button" type="submit">Submit meeting material</button>
+            </form>
+          {% endif %}
+        </section>
       {% endif %}
     </section>
 
