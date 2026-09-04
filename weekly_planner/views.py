@@ -27,11 +27,17 @@ from projects.forms import (
     RetrospectiveDecisionForm,
 )
 from projects.cluster_suggestions import draft_from_suggestions, get_clustering_service
+from projects.meeting_processing import (
+    enqueue_meeting_material_processing,
+    retry_meeting_material_processing,
+    sanitize_processing_error,
+)
 from projects.models import (
     ActionItem,
     FeedbackCard,
     FeedbackCluster,
     FeedbackCycle,
+    MeetingMaterial,
     Project,
     RetrospectiveDecision,
 )
@@ -797,10 +803,17 @@ class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
         meeting_materials = []
         if cycle.voting_status == FeedbackCycle.VotingStatus.CLOSED:
             meeting_materials = list(
-                cycle.meeting_materials.select_related("submitted_by").order_by(
-                    "-created_at",
-                    "-id",
+                cycle.meeting_materials.select_related(
+                    "submitted_by",
+                    "processed_transcript",
+                    "extraction_draft",
                 )
+                .prefetch_related(
+                    "extraction_draft__draft_decisions__matched_topic",
+                    "extraction_draft__draft_action_items__matched_owner",
+                    "extraction_draft__draft_action_items__matched_topic",
+                )
+                .order_by("-created_at", "-id")
             )
         context["meeting_materials"] = meeting_materials
         context["meeting_material_form"] = kwargs.get(
@@ -854,10 +867,53 @@ class MeetingMaterialCreateView(RetrospectiveCycleFacilitatorMixin, View):
             return self.render_board(invalid_meeting_material_form=form)
 
         if form.is_valid():
-            form.save()
+            material = form.save()
+            try:
+                enqueue_meeting_material_processing(material)
+            except Exception as exc:
+                material.processing_status = MeetingMaterial.ProcessingStatus.FAILED
+                material.failure_message = sanitize_processing_error(exc)
+                material.save(
+                    update_fields=[
+                        "processing_status",
+                        "failure_message",
+                        "updated_at",
+                    ]
+                )
             return redirect(self.get_success_url())
 
         return self.render_board(invalid_meeting_material_form=form)
+
+
+class MeetingMaterialRetryView(RetrospectiveCycleFacilitatorMixin, View):
+    """Queue a failed meeting material for another background processing attempt."""
+
+    def get_material(self):
+        if not hasattr(self, "_material"):
+            self._material = get_object_or_404(
+                self.get_cycle().meeting_materials.all(),
+                pk=self.kwargs["meeting_material_id"],
+            )
+        return self._material
+
+    def post(self, request, *args, **kwargs):
+        self.require_mutable_discussion()
+        material = self.get_material()
+        try:
+            retry_meeting_material_processing(material)
+        except ValueError as exc:
+            raise Http404("No retryable meeting material matches the given query.") from exc
+        except Exception as exc:
+            material.processing_status = MeetingMaterial.ProcessingStatus.FAILED
+            material.failure_message = sanitize_processing_error(exc)
+            material.save(
+                update_fields=[
+                    "processing_status",
+                    "failure_message",
+                    "updated_at",
+                ]
+            )
+        return redirect(self.get_success_url())
 
 
 class FeedbackClusterDiscussionUpdateView(RetrospectiveCycleFacilitatorMixin, View):

@@ -31,6 +31,7 @@ from weekly_planner.views import (
     FeedbackSubmissionView,
     HomeView,
     MeetingMaterialCreateView,
+    MeetingMaterialRetryView,
     ProjectDashboardView,
     ProjectsView,
     RetrospectiveBoardView,
@@ -154,6 +155,14 @@ urlpatterns = [
         "projects/<int:project_id>/cycles/<int:cycle_id>/board/meeting-materials/add/",
         MeetingMaterialCreateView.as_view(),
         name="meeting_material_create",
+    ),
+    path(
+        (
+            "projects/<int:project_id>/cycles/<int:cycle_id>/board/"
+            "meeting-materials/<int:meeting_material_id>/retry/"
+        ),
+        MeetingMaterialRetryView.as_view(),
+        name="meeting_material_retry",
     ),
     path(
         "projects/<int:project_id>/cycles/<int:cycle_id>/board/discussion/topics/<int:cluster_id>/",

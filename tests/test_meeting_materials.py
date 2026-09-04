@@ -775,7 +775,6 @@ def test_form_accepts_common_extensions_without_provider_processing():
     facilitator = create_user("facilitator")
     project = create_project("Extension Validation Project")
     cycle = create_cycle(project, facilitator)
-    model_names_before = {model.__name__ for model in Project._meta.apps.get_models()}
 
     audio_form = MeetingMaterialForm(
         {},
@@ -799,11 +798,4 @@ def test_form_accepts_common_extensions_without_provider_processing():
     assert audio_form.is_valid() is True
     assert video_form.is_valid() is True
     assert transcript_form.is_valid() is True
-    assert model_names_before == {model.__name__ for model in Project._meta.apps.get_models()}
-    assert not any(
-        "celery" in name.lower()
-        or "worker" in name.lower()
-        or "transcription" in name.lower()
-        or "draft" in name.lower()
-        for name in model_names_before
-    )
+    assert MeetingMaterial.objects.count() == 0

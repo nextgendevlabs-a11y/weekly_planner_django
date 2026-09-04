@@ -424,6 +424,173 @@ class MeetingMaterial(models.Model):
         return f"{self.get_source_type_display()} for {self.cycle}"
 
 
+class MeetingMaterialTranscript(models.Model):
+    meeting_material = models.OneToOneField(
+        MeetingMaterial,
+        on_delete=models.CASCADE,
+        related_name="processed_transcript",
+    )
+    text = models.TextField()
+    character_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["meeting_material_id"]
+
+    def clean(self):
+        super().clean()
+        text = self.text.strip()
+        if not text:
+            raise ValidationError({"text": "Processed transcript cannot be empty."})
+        self.text = text
+        self.character_count = len(text)
+
+    def __str__(self) -> str:
+        return f"Processed transcript for {self.meeting_material}"
+
+
+class MeetingMaterialExtractionDraft(models.Model):
+    meeting_material = models.OneToOneField(
+        MeetingMaterial,
+        on_delete=models.CASCADE,
+        related_name="extraction_draft",
+    )
+    retrospective_summary_text = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["meeting_material_id"]
+
+    @property
+    def cycle(self):
+        return self.meeting_material.cycle
+
+    def clean(self):
+        super().clean()
+        self.retrospective_summary_text = self.retrospective_summary_text.strip()
+
+    def __str__(self) -> str:
+        return f"Extraction draft for {self.meeting_material}"
+
+
+class MeetingMaterialDraftDecision(models.Model):
+    extraction_draft = models.ForeignKey(
+        MeetingMaterialExtractionDraft,
+        on_delete=models.CASCADE,
+        related_name="draft_decisions",
+    )
+    text = models.TextField()
+    topic_candidate = models.CharField(max_length=255, blank=True, default="")
+    matched_topic = models.ForeignKey(
+        FeedbackCluster,
+        on_delete=models.SET_NULL,
+        related_name="meeting_material_draft_decisions",
+        blank=True,
+        null=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+    def clean(self):
+        super().clean()
+        text = self.text.strip()
+        if not text:
+            raise ValidationError({"text": "Draft decision text cannot be empty."})
+        self.text = text
+        self.topic_candidate = self.topic_candidate.strip()
+        if (
+            self.matched_topic_id is not None
+            and self.extraction_draft_id is not None
+            and self.matched_topic.cycle_id
+            != self.extraction_draft.meeting_material.cycle_id
+        ):
+            raise ValidationError(
+                {"matched_topic": "Matched topic must belong to the same feedback cycle."}
+            )
+
+    def __str__(self) -> str:
+        return self.text
+
+
+class MeetingMaterialDraftActionItem(models.Model):
+    extraction_draft = models.ForeignKey(
+        MeetingMaterialExtractionDraft,
+        on_delete=models.CASCADE,
+        related_name="draft_action_items",
+    )
+    description = models.TextField()
+    owner_candidate = models.CharField(max_length=255, blank=True, default="")
+    matched_owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="meeting_material_draft_action_items",
+        blank=True,
+        null=True,
+    )
+    due_date = models.DateField(blank=True, null=True)
+    topic_candidate = models.CharField(max_length=255, blank=True, default="")
+    matched_topic = models.ForeignKey(
+        FeedbackCluster,
+        on_delete=models.SET_NULL,
+        related_name="meeting_material_draft_action_items",
+        blank=True,
+        null=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["due_date", "created_at", "id"]
+
+    def clean(self):
+        super().clean()
+        description = self.description.strip()
+        if not description:
+            raise ValidationError(
+                {"description": "Draft action item description cannot be empty."}
+            )
+        self.description = description
+        self.owner_candidate = self.owner_candidate.strip()
+        self.topic_candidate = self.topic_candidate.strip()
+
+        material = None
+        if self.extraction_draft_id is not None:
+            material = self.extraction_draft.meeting_material
+
+        if self.matched_topic_id is not None and material is not None:
+            if self.matched_topic.cycle_id != material.cycle_id:
+                raise ValidationError(
+                    {
+                        "matched_topic": (
+                            "Matched topic must belong to the same feedback cycle."
+                        )
+                    }
+                )
+
+        if self.matched_owner_id is not None and material is not None:
+            owner_is_active_member = Membership.objects.filter(
+                project=material.cycle.project,
+                user=self.matched_owner,
+                user__is_active=True,
+            ).exists()
+            if not owner_is_active_member:
+                raise ValidationError(
+                    {
+                        "matched_owner": (
+                            "Matched owner must be an active project member."
+                        )
+                    }
+                )
+
+    def __str__(self) -> str:
+        return self.description
+
+
 class FeedbackCard(models.Model):
     class Category(models.TextChoices):
         START = "start", "Start"

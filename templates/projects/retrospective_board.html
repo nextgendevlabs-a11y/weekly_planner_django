@@ -291,6 +291,68 @@
                   {% if material.processing_status == "failed" and material.failure_message %}
                     <p class="status-note">Failure: {{ material.failure_message }}</p>
                   {% endif %}
+                  {% if can_manage_discussion %}
+                    {% if material.processing_status == "failed" %}
+                      <form class="section-action" method="post" action="{% url 'meeting_material_retry' project_id=project.pk cycle_id=cycle.pk meeting_material_id=material.pk %}">
+                        {% csrf_token %}
+                        <button class="button secondary-button" type="submit">Retry processing</button>
+                      </form>
+                    {% endif %}
+                    {% if material.processed_transcript %}
+                      <div class="compact-stack">
+                        <h4>Processed transcript</h4>
+                        <p class="status-note">{{ material.processed_transcript.character_count }} processed character{{ material.processed_transcript.character_count|pluralize }}.</p>
+                        <pre>{{ material.processed_transcript.text }}</pre>
+                      </div>
+                    {% endif %}
+                    {% if material.extraction_draft %}
+                      <div class="compact-stack">
+                        <h4>Draft extraction</h4>
+                        {% if material.extraction_draft.retrospective_summary_text %}
+                          <p><strong>Draft summary:</strong> {{ material.extraction_draft.retrospective_summary_text }}</p>
+                        {% else %}
+                          <p class="empty-state">No draft summary was extracted.</p>
+                        {% endif %}
+
+                        <h5>Draft decisions</h5>
+                        {% if material.extraction_draft.draft_decisions.all %}
+                          <ul class="feedback-card-list" aria-label="Draft decisions">
+                            {% for draft_decision in material.extraction_draft.draft_decisions.all %}
+                              <li class="feedback-card">
+                                <p>{{ draft_decision.text }}</p>
+                                <p class="status-note">
+                                  Topic candidate: {% if draft_decision.topic_candidate %}{{ draft_decision.topic_candidate }}{% else %}None{% endif %} |
+                                  Matched topic: {% if draft_decision.matched_topic %}{{ draft_decision.matched_topic.name }}{% else %}None{% endif %}
+                                </p>
+                              </li>
+                            {% endfor %}
+                          </ul>
+                        {% else %}
+                          <p class="empty-state">No draft decisions were extracted.</p>
+                        {% endif %}
+
+                        <h5>Draft action items</h5>
+                        {% if material.extraction_draft.draft_action_items.all %}
+                          <ul class="feedback-card-list" aria-label="Draft action items">
+                            {% for draft_action in material.extraction_draft.draft_action_items.all %}
+                              <li class="feedback-card">
+                                <p>{{ draft_action.description }}</p>
+                                <p class="status-note">
+                                  Owner candidate: {% if draft_action.owner_candidate %}{{ draft_action.owner_candidate }}{% else %}None{% endif %} |
+                                  Matched owner: {% if draft_action.matched_owner %}{{ draft_action.matched_owner.get_username }}{% else %}None{% endif %} |
+                                  Due: {% if draft_action.due_date %}{{ draft_action.due_date }}{% else %}No due date{% endif %} |
+                                  Topic candidate: {% if draft_action.topic_candidate %}{{ draft_action.topic_candidate }}{% else %}None{% endif %} |
+                                  Matched topic: {% if draft_action.matched_topic %}{{ draft_action.matched_topic.name }}{% else %}None{% endif %}
+                                </p>
+                              </li>
+                            {% endfor %}
+                          </ul>
+                        {% else %}
+                          <p class="empty-state">No draft action items were extracted.</p>
+                        {% endif %}
+                      </div>
+                    {% endif %}
+                  {% endif %}
                 </li>
               {% endfor %}
             </ul>
