@@ -119,6 +119,28 @@ class FeedbackCycle(models.Model):
         return f"{self.label} ({self.project})"
 
 
+class FeedbackCluster(models.Model):
+    cycle = models.ForeignKey(
+        FeedbackCycle,
+        on_delete=models.CASCADE,
+        related_name="feedback_clusters",
+    )
+    name = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+    def clean(self):
+        super().clean()
+        if not self.name or not self.name.strip():
+            raise ValidationError({"name": "Cluster name cannot be empty."})
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.cycle})"
+
+
 class FeedbackCard(models.Model):
     class Category(models.TextChoices):
         START = "start", "Start"
@@ -134,6 +156,13 @@ class FeedbackCard(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="feedback_cards",
+    )
+    cluster = models.ForeignKey(
+        FeedbackCluster,
+        on_delete=models.SET_NULL,
+        related_name="feedback_cards",
+        blank=True,
+        null=True,
     )
     category = models.CharField(
         max_length=16,
@@ -157,6 +186,14 @@ class FeedbackCard(models.Model):
         super().clean()
         if not self.text or not self.text.strip():
             raise ValidationError({"text": "Feedback text cannot be empty."})
+        if (
+            self.cluster_id is not None
+            and self.cycle_id is not None
+            and self.cluster.cycle_id != self.cycle_id
+        ):
+            raise ValidationError(
+                {"cluster": "Feedback card cluster must belong to the same feedback cycle."}
+            )
 
     def __str__(self) -> str:
         return f"{self.get_category_display()} feedback by {self.author} for {self.cycle}"

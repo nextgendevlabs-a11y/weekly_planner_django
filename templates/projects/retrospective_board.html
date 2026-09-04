@@ -9,25 +9,161 @@
       <p>{{ cycle.label }} retrospective board</p>
     </div>
 
-    <div class="feedback-columns" aria-label="Revealed feedback">
-      {% for section in category_sections %}
-        <section class="feedback-section" aria-labelledby="board-{{ section.value }}-heading">
-          <h2 id="board-{{ section.value }}-heading">{{ section.label }}</h2>
+    {% if can_facilitate %}
+      <section class="status-section" aria-labelledby="create-cluster-heading">
+        <h2 id="create-cluster-heading">Create cluster</h2>
+        <form class="inline-form" method="post" action="{% url 'feedback_cluster_create' project_id=project.pk cycle_id=cycle.pk %}">
+          {% csrf_token %}
+          {{ cluster_create_form.non_field_errors }}
+          <div class="field">
+            {{ cluster_create_form.name.errors }}
+            {{ cluster_create_form.name.label_tag }}
+            {{ cluster_create_form.name }}
+          </div>
+          <button class="button" type="submit">Create cluster</button>
+        </form>
+      </section>
+    {% endif %}
 
-          {% if section.cards %}
-            <ul class="feedback-card-list" aria-label="{{ section.label }} feedback">
-              {% for card in section.cards %}
-                <li class="feedback-card">
-                  <p>{{ card.text }}</p>
-                  <p class="status-note">{{ card.author_label }}</p>
-                </li>
-              {% endfor %}
-            </ul>
-          {% else %}
-            <p class="empty-state">No {{ section.label }} feedback was submitted.</p>
-          {% endif %}
-        </section>
-      {% endfor %}
-    </div>
+    <section class="stack" aria-labelledby="clusters-heading">
+      <div class="section-heading">
+        <h2 id="clusters-heading">Themes</h2>
+        <p class="status-note">Clustered cards stay grouped here; ungrouped cards stay below.</p>
+      </div>
+
+      {% if clusters %}
+        <div class="cluster-list">
+          {% for cluster in clusters %}
+            <article class="cluster-panel" aria-labelledby="cluster-{{ cluster.id }}-heading">
+              <div class="cluster-panel__header">
+                <h3 id="cluster-{{ cluster.id }}-heading">{{ cluster.name }}</h3>
+
+                {% if can_facilitate %}
+                  <form class="inline-form" method="post" action="{% url 'feedback_cluster_rename' project_id=project.pk cycle_id=cycle.pk cluster_id=cluster.id %}">
+                    {% csrf_token %}
+                    {{ cluster.rename_form.non_field_errors }}
+                    <div class="field">
+                      {{ cluster.rename_form.name.errors }}
+                      {{ cluster.rename_form.name.label_tag }}
+                      {{ cluster.rename_form.name }}
+                    </div>
+                    <button class="button secondary-button" type="submit">Rename cluster</button>
+                  </form>
+                {% endif %}
+              </div>
+
+              {% if cluster.cards %}
+                <ul class="feedback-card-list" aria-label="{{ cluster.name }} cards">
+                  {% for card in cluster.cards %}
+                    <li class="feedback-card">
+                      <p>{{ card.text }}</p>
+                      <p class="status-note">{{ card.category_label }} - {{ card.author_label }}</p>
+                      {% if can_facilitate %}
+                        <form class="inline-form compact-action" method="post" action="{% url 'feedback_card_move' project_id=project.pk cycle_id=cycle.pk card_id=card.id %}">
+                          {% csrf_token %}
+                          <label for="id_card_{{ card.id }}_cluster">Move card</label>
+                          <select id="id_card_{{ card.id }}_cluster" name="cluster">
+                            <option value="">Ungrouped</option>
+                            {% for option in cluster_options %}
+                              <option value="{{ option.id }}"{% if option.id == cluster.id %} selected{% endif %}>{{ option.name }}</option>
+                            {% endfor %}
+                          </select>
+                          <button class="button secondary-button" type="submit">Move</button>
+                        </form>
+                      {% endif %}
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p class="empty-state">No cards are in this cluster yet.</p>
+              {% endif %}
+
+              {% if can_facilitate %}
+                <div class="cluster-actions">
+                  <form class="inline-form" method="post" action="{% url 'feedback_cluster_merge' project_id=project.pk cycle_id=cycle.pk cluster_id=cluster.id %}">
+                    {% csrf_token %}
+                    {% if cluster.merge_error %}
+                      <ul class="errorlist"><li>{{ cluster.merge_error }}</li></ul>
+                    {% endif %}
+                    <label for="id_cluster_{{ cluster.id }}_target">Merge into</label>
+                    <select id="id_cluster_{{ cluster.id }}_target" name="target_cluster">
+                      {% for option in cluster_options %}
+                        {% if option.id != cluster.id %}
+                          <option value="{{ option.id }}">{{ option.name }}</option>
+                        {% endif %}
+                      {% endfor %}
+                    </select>
+                    <button class="button secondary-button" type="submit">Merge cluster</button>
+                  </form>
+
+                  <form class="stack compact-stack" method="post" action="{% url 'feedback_cluster_split' project_id=project.pk cycle_id=cycle.pk cluster_id=cluster.id %}">
+                    {% csrf_token %}
+                    {{ cluster.split_form.non_field_errors }}
+                    <div class="field">
+                      {{ cluster.split_form.name.errors }}
+                      {{ cluster.split_form.name.label_tag }}
+                      {{ cluster.split_form.name }}
+                    </div>
+                    <div class="field">
+                      {{ cluster.split_form.cards.errors }}
+                      <fieldset>
+                        <legend>Cards to split</legend>
+                        {{ cluster.split_form.cards }}
+                      </fieldset>
+                    </div>
+                    <button class="button secondary-button" type="submit">Split cluster</button>
+                  </form>
+                </div>
+              {% endif %}
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="empty-state">No clusters yet. Revealed cards remain ungrouped until a facilitator organizes them.</p>
+      {% endif %}
+    </section>
+
+    <section class="stack" aria-labelledby="ungrouped-heading">
+      <div class="section-heading">
+        <h2 id="ungrouped-heading">Ungrouped feedback</h2>
+        <p class="status-note">Cards can stay here until they fit a weekly retrospective theme.</p>
+      </div>
+
+      <div class="feedback-columns" aria-label="Ungrouped revealed feedback">
+        {% for section in category_sections %}
+          <section class="feedback-section" aria-labelledby="board-{{ section.value }}-heading">
+            <h3 id="board-{{ section.value }}-heading">{{ section.label }}</h3>
+
+            {% if section.cards %}
+              <ul class="feedback-card-list" aria-label="{{ section.label }} feedback">
+                {% for card in section.cards %}
+                  <li class="feedback-card">
+                    <p>{{ card.text }}</p>
+                    <p class="status-note">{{ card.author_label }}</p>
+                    {% if can_facilitate %}
+                      <form class="inline-form compact-action" method="post" action="{% url 'feedback_card_move' project_id=project.pk cycle_id=cycle.pk card_id=card.id %}">
+                        {% csrf_token %}
+                        <label for="id_card_{{ card.id }}_cluster">Move card</label>
+                        <select id="id_card_{{ card.id }}_cluster" name="cluster">
+                          <option value="">Ungrouped</option>
+                          {% for option in cluster_options %}
+                            <option value="{{ option.id }}">{{ option.name }}</option>
+                          {% endfor %}
+                        </select>
+                        <button class="button secondary-button" type="submit">Move</button>
+                      </form>
+                    {% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            {% elif clusters %}
+              <p class="empty-state">No ungrouped {{ section.label }} feedback.</p>
+            {% else %}
+              <p class="empty-state">No {{ section.label }} feedback was submitted.</p>
+            {% endif %}
+          </section>
+        {% endfor %}
+      </div>
+    </section>
   </section>
 {% endblock %}

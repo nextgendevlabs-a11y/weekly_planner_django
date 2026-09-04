@@ -1,6 +1,6 @@
 from django import forms
 
-from projects.models import FeedbackCard, FeedbackCycle
+from projects.models import FeedbackCard, FeedbackCluster, FeedbackCycle
 
 
 class FeedbackCycleCreateForm(forms.ModelForm):
@@ -83,3 +83,55 @@ class FeedbackCardForm(forms.ModelForm):
         if commit:
             card.save()
         return card
+
+
+class FeedbackClusterForm(forms.ModelForm):
+    class Meta:
+        model = FeedbackCluster
+        fields = ["name"]
+        labels = {
+            "name": "Cluster name",
+        }
+
+    def __init__(self, *args, cycle, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cycle = cycle
+        self.fields["name"].error_messages["required"] = "Cluster name cannot be empty."
+
+    def clean_name(self):
+        name = self.cleaned_data["name"]
+        if not name.strip():
+            raise forms.ValidationError("Cluster name cannot be empty.")
+        return name.strip()
+
+    def save(self, commit=True):
+        cluster = super().save(commit=False)
+        cluster.cycle = self.cycle
+        if commit:
+            cluster.save()
+        return cluster
+
+
+class FeedbackClusterSplitForm(forms.Form):
+    name = forms.CharField(
+        label="New cluster name",
+        error_messages={"required": "Cluster name cannot be empty."},
+    )
+    cards = forms.ModelMultipleChoiceField(
+        queryset=FeedbackCard.objects.none(),
+        widget=forms.CheckboxSelectMultiple,
+        error_messages={
+            "required": "Select at least one card to split into the new cluster.",
+        },
+    )
+
+    def __init__(self, *args, cluster, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cluster = cluster
+        self.fields["cards"].queryset = cluster.feedback_cards.all()
+
+    def clean_name(self):
+        name = self.cleaned_data["name"]
+        if not name.strip():
+            raise forms.ValidationError("Cluster name cannot be empty.")
+        return name.strip()

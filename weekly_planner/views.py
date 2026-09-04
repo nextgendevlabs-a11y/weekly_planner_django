@@ -12,11 +12,16 @@ from django.views.generic import FormView
 from django.views.generic import TemplateView
 from django.views.generic import View
 
-from projects.forms import FeedbackCardForm, FeedbackCycleCreateForm
-from projects.models import FeedbackCard, FeedbackCycle, Project
+from projects.forms import (
+    FeedbackCardForm,
+    FeedbackClusterForm,
+    FeedbackClusterSplitForm,
+    FeedbackCycleCreateForm,
+)
+from projects.models import FeedbackCard, FeedbackCluster, FeedbackCycle, Project
 from projects.permissions import can_facilitate_project, facilitatable_projects_for
 from projects.permissions import viewable_projects_for
-from projects.retrospective_board import retrospective_board_sections_for
+from projects.retrospective_board import retrospective_board_context_for
 from projects.submission_progress import submission_progress_for
 
 
@@ -337,10 +342,8 @@ class FeedbackCycleRevealView(LoginRequiredMixin, View):
         )
 
 
-class RetrospectiveBoardView(LoginRequiredMixin, TemplateView):
-    """First revealed board for Start, Stop, and Continue feedback."""
-
-    template_name = "projects/retrospective_board.html"
+class RetrospectiveCycleMemberMixin(LoginRequiredMixin):
+    """Resolve member-only access to a revealed retrospective cycle."""
 
     def get_project(self):
         if not hasattr(self, "_project"):
@@ -360,10 +363,243 @@ class RetrospectiveBoardView(LoginRequiredMixin, TemplateView):
             )
         return self._cycle
 
+    def get_success_url(self):
+        return reverse(
+            "retrospective_board",
+            kwargs={
+                "project_id": self.get_project().pk,
+                "cycle_id": self.get_cycle().pk,
+            },
+        )
+
+
+class RetrospectiveCycleFacilitatorMixin(LoginRequiredMixin):
+    """Resolve facilitator-only access to a revealed retrospective cycle."""
+
+    def get_project(self):
+        if not hasattr(self, "_project"):
+            self._project = get_object_or_404(
+                facilitatable_projects_for(self.request.user),
+                pk=self.kwargs["project_id"],
+            )
+        return self._project
+
+    def get_cycle(self):
+        if not hasattr(self, "_cycle"):
+            self._cycle = get_object_or_404(
+                self.get_project().feedback_cycles.filter(
+                    status=FeedbackCycle.Status.RETROSPECTIVE,
+                ),
+                pk=self.kwargs["cycle_id"],
+            )
+        return self._cycle
+
+    def get_success_url(self):
+        return reverse(
+            "retrospective_board",
+            kwargs={
+                "project_id": self.get_project().pk,
+                "cycle_id": self.get_cycle().pk,
+            },
+        )
+
+    def render_board(
+        self,
+        *,
+        invalid_create_form=None,
+        invalid_rename_forms=None,
+        invalid_split_forms=None,
+        merge_errors=None,
+    ):
+        view = RetrospectiveBoardView()
+        view.setup(self.request, *self.args, **self.kwargs)
+        context = view.get_context_data(
+            invalid_create_form=invalid_create_form,
+            invalid_rename_forms=invalid_rename_forms or {},
+            invalid_split_forms=invalid_split_forms or {},
+            merge_errors=merge_errors or {},
+        )
+        return view.render_to_response(context)
+
+
+class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
+    """Revealed board for Start, Stop, and Continue feedback themes."""
+
+    template_name = "projects/retrospective_board.html"
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         cycle = self.get_cycle()
+        board_context = retrospective_board_context_for(cycle)
+        invalid_rename_forms = kwargs.get("invalid_rename_forms", {})
+        invalid_split_forms = kwargs.get("invalid_split_forms", {})
+        merge_errors = kwargs.get("merge_errors", {})
+        can_facilitate = can_facilitate_project(self.request.user, self.get_project())
+
+        for cluster in board_context["clusters"]:
+            cluster_id = cluster["id"]
+            cluster["rename_form"] = invalid_rename_forms.get(
+                cluster_id,
+                FeedbackClusterForm(
+                    instance=cluster["object"],
+                    cycle=cycle,
+                    auto_id=f"id_cluster_{cluster_id}_%s",
+                ),
+            )
+            cluster["split_form"] = invalid_split_forms.get(
+                cluster_id,
+                FeedbackClusterSplitForm(
+                    cluster=cluster["object"],
+                    auto_id=f"id_split_{cluster_id}_%s",
+                ),
+            )
+            cluster["merge_error"] = merge_errors.get(cluster_id)
+
         context["project"] = self.get_project()
         context["cycle"] = cycle
-        context["category_sections"] = retrospective_board_sections_for(cycle)
+        context["can_facilitate"] = can_facilitate
+        context["cluster_create_form"] = kwargs.get(
+            "invalid_create_form",
+            FeedbackClusterForm(cycle=cycle, auto_id="id_new_cluster_%s"),
+        )
+        context["clusters"] = board_context["clusters"]
+        context["cluster_options"] = [
+            {"id": cluster["id"], "name": cluster["name"]}
+            for cluster in board_context["clusters"]
+        ]
+        context["category_sections"] = board_context["ungrouped_sections"]
         return context
+
+
+class FeedbackClusterCreateView(RetrospectiveCycleFacilitatorMixin, View):
+    """Create one manual cluster on a revealed retrospective board."""
+
+    def post(self, request, *args, **kwargs):
+        form = FeedbackClusterForm(
+            request.POST,
+            cycle=self.get_cycle(),
+            auto_id="id_new_cluster_%s",
+        )
+        if form.is_valid():
+            form.save()
+            return redirect(self.get_success_url())
+
+        return self.render_board(invalid_create_form=form)
+
+
+class FeedbackClusterRenameView(RetrospectiveCycleFacilitatorMixin, View):
+    """Rename one cluster in the requested revealed feedback cycle."""
+
+    def get_cluster(self):
+        if not hasattr(self, "_cluster"):
+            self._cluster = get_object_or_404(
+                self.get_cycle().feedback_clusters.all(),
+                pk=self.kwargs["cluster_id"],
+            )
+        return self._cluster
+
+    def post(self, request, *args, **kwargs):
+        cluster = self.get_cluster()
+        form = FeedbackClusterForm(
+            request.POST,
+            instance=cluster,
+            cycle=self.get_cycle(),
+            auto_id=f"id_cluster_{cluster.pk}_%s",
+        )
+        if form.is_valid():
+            form.save()
+            return redirect(self.get_success_url())
+
+        return self.render_board(invalid_rename_forms={cluster.pk: form})
+
+
+class FeedbackCardClusterMoveView(RetrospectiveCycleFacilitatorMixin, View):
+    """Move one revealed feedback card into a cluster or back to ungrouped."""
+
+    def get_card(self):
+        if not hasattr(self, "_card"):
+            self._card = get_object_or_404(
+                FeedbackCard.objects.filter(cycle=self.get_cycle()),
+                pk=self.kwargs["card_id"],
+            )
+        return self._card
+
+    def get_target_cluster(self):
+        target_cluster_id = self.request.POST.get("cluster")
+        if not target_cluster_id:
+            return None
+        return get_object_or_404(
+            self.get_cycle().feedback_clusters.all(),
+            pk=target_cluster_id,
+        )
+
+    def post(self, request, *args, **kwargs):
+        card = self.get_card()
+        target_cluster = self.get_target_cluster()
+        FeedbackCard.objects.filter(pk=card.pk).update(cluster=target_cluster)
+        return redirect(self.get_success_url())
+
+
+class FeedbackClusterMergeView(RetrospectiveCycleFacilitatorMixin, View):
+    """Merge a source cluster into another cluster on the same board."""
+
+    def get_source_cluster(self):
+        if not hasattr(self, "_source_cluster"):
+            self._source_cluster = get_object_or_404(
+                self.get_cycle().feedback_clusters.all(),
+                pk=self.kwargs["cluster_id"],
+            )
+        return self._source_cluster
+
+    def get_target_cluster(self):
+        target_cluster_id = self.request.POST.get("target_cluster")
+        return get_object_or_404(
+            self.get_cycle().feedback_clusters.all(),
+            pk=target_cluster_id,
+        )
+
+    def post(self, request, *args, **kwargs):
+        source_cluster = self.get_source_cluster()
+        target_cluster = self.get_target_cluster()
+        if source_cluster.pk == target_cluster.pk:
+            return self.render_board(
+                merge_errors={
+                    source_cluster.pk: "Choose a different cluster to merge into."
+                }
+            )
+
+        FeedbackCard.objects.filter(
+            cycle=self.get_cycle(),
+            cluster=source_cluster,
+        ).update(cluster=target_cluster)
+        source_cluster.delete()
+        return redirect(self.get_success_url())
+
+
+class FeedbackClusterSplitView(RetrospectiveCycleFacilitatorMixin, View):
+    """Split selected cards from one cluster into a new manual cluster."""
+
+    def get_cluster(self):
+        if not hasattr(self, "_cluster"):
+            self._cluster = get_object_or_404(
+                self.get_cycle().feedback_clusters.all(),
+                pk=self.kwargs["cluster_id"],
+            )
+        return self._cluster
+
+    def post(self, request, *args, **kwargs):
+        cluster = self.get_cluster()
+        form = FeedbackClusterSplitForm(
+            request.POST,
+            cluster=cluster,
+            auto_id=f"id_split_{cluster.pk}_%s",
+        )
+        if not form.is_valid():
+            return self.render_board(invalid_split_forms={cluster.pk: form})
+
+        new_cluster = FeedbackCluster.objects.create(
+            cycle=self.get_cycle(),
+            name=form.cleaned_data["name"],
+        )
+        form.cleaned_data["cards"].update(cluster=new_cluster)
+        return redirect(self.get_success_url())

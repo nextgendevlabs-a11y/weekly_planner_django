@@ -9,7 +9,12 @@ from django.urls import path
 from weekly_planner.views import (
     FeedbackCardCreateView,
     FeedbackCardDeleteView,
+    FeedbackCardClusterMoveView,
     FeedbackCardUpdateView,
+    FeedbackClusterCreateView,
+    FeedbackClusterMergeView,
+    FeedbackClusterRenameView,
+    FeedbackClusterSplitView,
     FeedbackCycleCreateView,
     FeedbackCycleRevealView,
     FeedbackSubmissionView,
@@ -70,6 +75,31 @@ urlpatterns = [
         "projects/<int:project_id>/cycles/<int:cycle_id>/board/",
         RetrospectiveBoardView.as_view(),
         name="retrospective_board",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/clusters/add/",
+        FeedbackClusterCreateView.as_view(),
+        name="feedback_cluster_create",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/clusters/<int:cluster_id>/rename/",
+        FeedbackClusterRenameView.as_view(),
+        name="feedback_cluster_rename",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/cards/<int:card_id>/move/",
+        FeedbackCardClusterMoveView.as_view(),
+        name="feedback_card_move",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/clusters/<int:cluster_id>/merge/",
+        FeedbackClusterMergeView.as_view(),
+        name="feedback_cluster_merge",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/clusters/<int:cluster_id>/split/",
+        FeedbackClusterSplitView.as_view(),
+        name="feedback_cluster_split",
     ),
     path("admin/", admin.site.urls),
 ]
