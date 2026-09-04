@@ -23,6 +23,7 @@ from projects.forms import (
     FeedbackClusterSuggestionDraftForm,
     FeedbackClusterVoteForm,
     FeedbackCycleCreateForm,
+    MeetingMaterialExtractionDraftReviewForm,
     MeetingMaterialForm,
     RetrospectiveDecisionForm,
 )
@@ -38,6 +39,7 @@ from projects.models import (
     FeedbackCluster,
     FeedbackCycle,
     MeetingMaterial,
+    MeetingMaterialExtractionDraft,
     Project,
     RetrospectiveDecision,
 )
@@ -130,6 +132,30 @@ def _posted_positive_int_or_404(data, field_name, message):
     if not value.isdigit():
         raise Http404(message)
     return int(value)
+
+
+def _posted_exact_int_or_404(data, field_name, expected_value, message):
+    value = data.get(field_name)
+    if value is None or not value.isdigit() or int(value) != expected_value:
+        raise Http404(message)
+
+
+def _posted_review_object_ids_or_404(data, *, prefix, suffixes, valid_ids, message):
+    seen_ids = set()
+    for key in data:
+        if not key.startswith(prefix):
+            continue
+
+        tail = key.removeprefix(prefix)
+        object_id_value, separator, suffix = tail.partition("_")
+        if separator != "_" or suffix not in suffixes or not object_id_value.isdigit():
+            raise Http404(message)
+
+        object_id = int(object_id_value)
+        if object_id not in valid_ids:
+            raise Http404(message)
+        seen_ids.add(object_id)
+    return seen_ids
 
 
 class HomeView(TemplateView):
@@ -576,6 +602,7 @@ class RetrospectiveCycleFacilitatorMixin(LoginRequiredMixin):
         invalid_decision_create_form=None,
         invalid_decision_edit_forms=None,
         invalid_meeting_material_form=None,
+        invalid_extraction_review_forms=None,
     ):
         view = RetrospectiveBoardView()
         view.setup(self.request, *self.args, **self.kwargs)
@@ -594,6 +621,7 @@ class RetrospectiveCycleFacilitatorMixin(LoginRequiredMixin):
             invalid_decision_create_form=invalid_decision_create_form,
             invalid_decision_edit_forms=invalid_decision_edit_forms or {},
             invalid_meeting_material_form=invalid_meeting_material_form,
+            invalid_extraction_review_forms=invalid_extraction_review_forms or {},
         )
         return view.render_to_response(context)
 
@@ -641,6 +669,88 @@ class RetrospectiveCycleFacilitatorMixin(LoginRequiredMixin):
         ).exists():
             raise Http404("No decision topic matches the given query.")
 
+    def require_posted_extraction_review_scope(self, extraction_draft):
+        _posted_exact_int_or_404(
+            self.request.POST,
+            "material_id",
+            extraction_draft.meeting_material_id,
+            "No extraction draft matches the given query.",
+        )
+        _posted_exact_int_or_404(
+            self.request.POST,
+            "extraction_draft_id",
+            extraction_draft.pk,
+            "No extraction draft matches the given query.",
+        )
+        draft_decision_ids = set(
+            extraction_draft.draft_decisions.values_list("id", flat=True)
+        )
+        draft_action_ids = set(
+            extraction_draft.draft_action_items.values_list("id", flat=True)
+        )
+        _posted_exact_int_or_404(
+            self.request.POST,
+            "draft_decision_count",
+            len(draft_decision_ids),
+            "No extraction draft matches the given query.",
+        )
+        _posted_exact_int_or_404(
+            self.request.POST,
+            "draft_action_item_count",
+            len(draft_action_ids),
+            "No extraction draft matches the given query.",
+        )
+        _posted_review_object_ids_or_404(
+            self.request.POST,
+            prefix="decision_",
+            suffixes={"text", "topic"},
+            valid_ids=draft_decision_ids,
+            message="No draft decision matches the given query.",
+        )
+        _posted_review_object_ids_or_404(
+            self.request.POST,
+            prefix="action_",
+            suffixes={"description", "owner", "due_date", "topic"},
+            valid_ids=draft_action_ids,
+            message="No draft action item matches the given query.",
+        )
+
+        valid_topic_ids = set(
+            self.get_cycle().feedback_clusters.values_list("id", flat=True)
+        )
+        valid_owner_ids = set(
+            Membership.objects.filter(
+                project=self.get_project(),
+                user__is_active=True,
+            ).values_list("user_id", flat=True)
+        )
+
+        for decision_id in draft_decision_ids:
+            topic_id = _posted_positive_int_or_404(
+                self.request.POST,
+                f"decision_{decision_id}_topic",
+                "No review topic matches the given query.",
+            )
+            if topic_id is not None and topic_id not in valid_topic_ids:
+                raise Http404("No review topic matches the given query.")
+
+        for action_id in draft_action_ids:
+            owner_id = _posted_positive_int_or_404(
+                self.request.POST,
+                f"action_{action_id}_owner",
+                "No review owner matches the given query.",
+            )
+            if owner_id is not None and owner_id not in valid_owner_ids:
+                raise Http404("No review owner matches the given query.")
+
+            topic_id = _posted_positive_int_or_404(
+                self.request.POST,
+                f"action_{action_id}_topic",
+                "No review topic matches the given query.",
+            )
+            if topic_id is not None and topic_id not in valid_topic_ids:
+                raise Http404("No review topic matches the given query.")
+
 
 class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
     """Revealed board for Start, Stop, and Continue feedback themes."""
@@ -657,6 +767,10 @@ class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
         invalid_discussion_forms = kwargs.get("invalid_discussion_forms", {})
         invalid_action_item_edit_forms = kwargs.get("invalid_action_item_edit_forms", {})
         invalid_decision_edit_forms = kwargs.get("invalid_decision_edit_forms", {})
+        invalid_extraction_review_forms = kwargs.get(
+            "invalid_extraction_review_forms",
+            {},
+        )
         can_facilitate = can_facilitate_project(self.request.user, self.get_project())
         can_manage_clusters = (
             can_facilitate
@@ -815,6 +929,28 @@ class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
                 )
                 .order_by("-created_at", "-id")
             )
+            if can_manage_discussion:
+                for material in meeting_materials:
+                    try:
+                        extraction_draft = material.extraction_draft
+                    except MeetingMaterialExtractionDraft.DoesNotExist:
+                        continue
+                    extraction_draft.can_review = (
+                        material.processing_status
+                        == MeetingMaterial.ProcessingStatus.SUCCEEDED
+                        and extraction_draft.review_status
+                        == MeetingMaterialExtractionDraft.ReviewStatus.PENDING
+                    )
+                    if extraction_draft.can_review:
+                        extraction_draft.review_form = (
+                            invalid_extraction_review_forms.get(
+                                extraction_draft.pk,
+                                MeetingMaterialExtractionDraftReviewForm(
+                                    extraction_draft=extraction_draft,
+                                    auto_id=f"id_extraction_review_{extraction_draft.pk}_%s",
+                                ),
+                            )
+                        )
         context["meeting_materials"] = meeting_materials
         context["meeting_material_form"] = kwargs.get(
             "invalid_meeting_material_form",
@@ -913,6 +1049,97 @@ class MeetingMaterialRetryView(RetrospectiveCycleFacilitatorMixin, View):
                     "updated_at",
                 ]
             )
+        return redirect(self.get_success_url())
+
+
+class MeetingMaterialExtractionDraftMixin(RetrospectiveCycleFacilitatorMixin):
+    """Resolve one pending succeeded meeting-material extraction draft."""
+
+    def get_extraction_draft(self):
+        if not hasattr(self, "_extraction_draft"):
+            self._extraction_draft = get_object_or_404(
+                MeetingMaterialExtractionDraft.objects.select_related(
+                    "meeting_material",
+                    "meeting_material__cycle",
+                    "meeting_material__cycle__project",
+                ).filter(
+                    meeting_material__cycle=self.get_cycle(),
+                    meeting_material_id=self.kwargs["meeting_material_id"],
+                    meeting_material__processing_status=(
+                        MeetingMaterial.ProcessingStatus.SUCCEEDED
+                    ),
+                    review_status=MeetingMaterialExtractionDraft.ReviewStatus.PENDING,
+                ),
+                pk=self.kwargs["extraction_draft_id"],
+            )
+        return self._extraction_draft
+
+
+class MeetingMaterialExtractionDraftApproveView(MeetingMaterialExtractionDraftMixin, View):
+    """Approve one reviewed extraction draft into confirmed retrospective outcomes."""
+
+    def post(self, request, *args, **kwargs):
+        self.require_mutable_discussion()
+        extraction_draft = self.get_extraction_draft()
+        self.require_posted_extraction_review_scope(extraction_draft)
+        form = MeetingMaterialExtractionDraftReviewForm(
+            request.POST,
+            extraction_draft=extraction_draft,
+            auto_id=f"id_extraction_review_{extraction_draft.pk}_%s",
+        )
+        if not form.is_valid():
+            return self.render_board(
+                invalid_extraction_review_forms={extraction_draft.pk: form}
+            )
+
+        with transaction.atomic():
+            locked_draft = get_object_or_404(
+                MeetingMaterialExtractionDraft.objects.select_for_update()
+                .select_related(
+                    "meeting_material",
+                    "meeting_material__cycle",
+                    "meeting_material__cycle__project",
+                )
+                .filter(
+                    meeting_material__cycle=self.get_cycle(),
+                    meeting_material_id=self.kwargs["meeting_material_id"],
+                    meeting_material__processing_status=(
+                        MeetingMaterial.ProcessingStatus.SUCCEEDED
+                    ),
+                    review_status=MeetingMaterialExtractionDraft.ReviewStatus.PENDING,
+                ),
+                pk=self.kwargs["extraction_draft_id"],
+            )
+            locked_form = MeetingMaterialExtractionDraftReviewForm(
+                request.POST,
+                extraction_draft=locked_draft,
+                auto_id=f"id_extraction_review_{locked_draft.pk}_%s",
+            )
+            if not locked_form.is_valid():
+                return self.render_board(
+                    invalid_extraction_review_forms={locked_draft.pk: locked_form}
+                )
+            locked_form.save()
+
+        return redirect(self.get_success_url())
+
+
+class MeetingMaterialExtractionDraftDiscardView(MeetingMaterialExtractionDraftMixin, View):
+    """Discard one pending extraction draft without creating confirmed outcomes."""
+
+    def post(self, request, *args, **kwargs):
+        self.require_mutable_discussion()
+        extraction_draft = self.get_extraction_draft()
+        updated_count = MeetingMaterialExtractionDraft.objects.filter(
+            pk=extraction_draft.pk,
+            review_status=MeetingMaterialExtractionDraft.ReviewStatus.PENDING,
+            meeting_material__cycle=self.get_cycle(),
+            meeting_material__processing_status=(
+                MeetingMaterial.ProcessingStatus.SUCCEEDED
+            ),
+        ).update(review_status=MeetingMaterialExtractionDraft.ReviewStatus.DISCARDED)
+        if updated_count != 1:
+            raise Http404("No extraction draft matches the given query.")
         return redirect(self.get_success_url())
 
 

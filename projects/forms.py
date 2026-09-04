@@ -10,6 +10,7 @@ from projects.models import (
     FeedbackCluster,
     FeedbackCycle,
     MeetingMaterial,
+    MeetingMaterialExtractionDraft,
     RetrospectiveDecision,
 )
 
@@ -479,6 +480,242 @@ class MeetingMaterialForm(forms.Form):
         meeting_material.full_clean()
         meeting_material.save()
         return meeting_material
+
+
+class MeetingMaterialExtractionDraftReviewForm(forms.Form):
+    summary_text = forms.CharField(
+        required=False,
+        label="Reviewed summary",
+        widget=forms.Textarea(attrs={"rows": 4}),
+    )
+    material_id = forms.IntegerField(widget=forms.HiddenInput)
+    extraction_draft_id = forms.IntegerField(widget=forms.HiddenInput)
+    draft_decision_count = forms.IntegerField(widget=forms.HiddenInput, min_value=0)
+    draft_action_item_count = forms.IntegerField(widget=forms.HiddenInput, min_value=0)
+
+    def __init__(self, *args, extraction_draft, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.extraction_draft = extraction_draft
+        self.cycle = extraction_draft.meeting_material.cycle
+        self.material = extraction_draft.meeting_material
+        self.draft_decisions = list(
+            extraction_draft.draft_decisions.select_related("matched_topic").order_by(
+                "created_at",
+                "id",
+            )
+        )
+        self.draft_action_items = list(
+            extraction_draft.draft_action_items.select_related(
+                "matched_owner",
+                "matched_topic",
+            ).order_by(
+                "due_date",
+                "created_at",
+                "id",
+            )
+        )
+        self.fields["summary_text"].initial = (
+            extraction_draft.retrospective_summary_text
+        )
+        self.fields["material_id"].initial = self.material.pk
+        self.fields["extraction_draft_id"].initial = extraction_draft.pk
+        self.fields["draft_decision_count"].initial = len(self.draft_decisions)
+        self.fields["draft_action_item_count"].initial = len(self.draft_action_items)
+        self._add_decision_fields()
+        self._add_action_item_fields()
+
+    @staticmethod
+    def decision_text_field_name(draft_decision):
+        return f"decision_{draft_decision.pk}_text"
+
+    @staticmethod
+    def decision_topic_field_name(draft_decision):
+        return f"decision_{draft_decision.pk}_topic"
+
+    @staticmethod
+    def action_description_field_name(draft_action):
+        return f"action_{draft_action.pk}_description"
+
+    @staticmethod
+    def action_owner_field_name(draft_action):
+        return f"action_{draft_action.pk}_owner"
+
+    @staticmethod
+    def action_due_date_field_name(draft_action):
+        return f"action_{draft_action.pk}_due_date"
+
+    @staticmethod
+    def action_topic_field_name(draft_action):
+        return f"action_{draft_action.pk}_topic"
+
+    def _topic_queryset(self):
+        return self.cycle.feedback_clusters.all()
+
+    def _owner_queryset(self):
+        return (
+            get_user_model()
+            .objects.filter(
+                is_active=True,
+                project_memberships__project=self.cycle.project,
+            )
+            .distinct()
+            .order_by("username", "id")
+        )
+
+    def _add_decision_fields(self):
+        for draft_decision in self.draft_decisions:
+            self.fields[self.decision_text_field_name(draft_decision)] = (
+                forms.CharField(
+                    label="Decision",
+                    initial=draft_decision.text,
+                    widget=forms.Textarea(attrs={"rows": 2}),
+                    error_messages={
+                        "required": "Decision text cannot be empty.",
+                    },
+                )
+            )
+            self.fields[self.decision_topic_field_name(draft_decision)] = (
+                forms.ModelChoiceField(
+                    queryset=self._topic_queryset(),
+                    required=False,
+                    label="Related discussion topic",
+                    initial=draft_decision.matched_topic_id,
+                    empty_label="No related topic",
+                    error_messages={
+                        "invalid_choice": "Choose a discussion topic from this cycle.",
+                    },
+                )
+            )
+
+    def _add_action_item_fields(self):
+        for draft_action in self.draft_action_items:
+            self.fields[self.action_description_field_name(draft_action)] = (
+                forms.CharField(
+                    label="Action item",
+                    initial=draft_action.description,
+                    widget=forms.Textarea(attrs={"rows": 2}),
+                    error_messages={
+                        "required": "Action item description cannot be empty.",
+                    },
+                )
+            )
+            self.fields[self.action_owner_field_name(draft_action)] = (
+                forms.ModelChoiceField(
+                    queryset=self._owner_queryset(),
+                    required=True,
+                    label="Owner",
+                    initial=draft_action.matched_owner_id,
+                    error_messages={
+                        "required": (
+                            "Choose an active project member as the action item owner."
+                        ),
+                        "invalid_choice": (
+                            "Choose an active project member as the action item owner."
+                        ),
+                    },
+                )
+            )
+            self.fields[self.action_due_date_field_name(draft_action)] = (
+                forms.DateField(
+                    required=False,
+                    label="Due date",
+                    initial=draft_action.due_date,
+                    widget=forms.DateInput(attrs={"type": "date"}),
+                    error_messages={
+                        "invalid": "Enter a valid due date.",
+                    },
+                )
+            )
+            self.fields[self.action_topic_field_name(draft_action)] = (
+                forms.ModelChoiceField(
+                    queryset=self._topic_queryset(),
+                    required=True,
+                    label="Related discussion topic",
+                    initial=draft_action.matched_topic_id,
+                    error_messages={
+                        "required": "Choose a discussion topic from this cycle.",
+                        "invalid_choice": "Choose a discussion topic from this cycle.",
+                    },
+                )
+            )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if self.errors:
+            return cleaned_data
+
+        expected = {
+            "material_id": self.material.pk,
+            "extraction_draft_id": self.extraction_draft.pk,
+            "draft_decision_count": len(self.draft_decisions),
+            "draft_action_item_count": len(self.draft_action_items),
+        }
+        for field_name, expected_value in expected.items():
+            if cleaned_data.get(field_name) != expected_value:
+                raise forms.ValidationError("Draft review data could not be read.")
+        return cleaned_data
+
+    def decision_rows(self):
+        return [
+            {
+                "draft": draft_decision,
+                "text": self[self.decision_text_field_name(draft_decision)],
+                "topic": self[self.decision_topic_field_name(draft_decision)],
+            }
+            for draft_decision in self.draft_decisions
+        ]
+
+    def action_item_rows(self):
+        return [
+            {
+                "draft": draft_action,
+                "description": self[self.action_description_field_name(draft_action)],
+                "owner": self[self.action_owner_field_name(draft_action)],
+                "due_date": self[self.action_due_date_field_name(draft_action)],
+                "topic": self[self.action_topic_field_name(draft_action)],
+            }
+            for draft_action in self.draft_action_items
+        ]
+
+    def save(self):
+        summary_text = self.cleaned_data.get("summary_text", "")
+        self.cycle.approved_retrospective_summary_text = summary_text.strip()
+        self.cycle.full_clean()
+        self.cycle.save(
+            update_fields=["approved_retrospective_summary_text", "updated_at"]
+        )
+
+        for draft_decision in self.draft_decisions:
+            decision = RetrospectiveDecision(
+                cycle=self.cycle,
+                text=self.cleaned_data[self.decision_text_field_name(draft_decision)],
+                topic=self.cleaned_data[self.decision_topic_field_name(draft_decision)],
+            )
+            decision.full_clean()
+            decision.save()
+
+        for draft_action in self.draft_action_items:
+            action_item = ActionItem(
+                cycle=self.cycle,
+                description=self.cleaned_data[
+                    self.action_description_field_name(draft_action)
+                ],
+                owner=self.cleaned_data[self.action_owner_field_name(draft_action)],
+                due_date=self.cleaned_data[
+                    self.action_due_date_field_name(draft_action)
+                ],
+                topic=self.cleaned_data[self.action_topic_field_name(draft_action)],
+                status=ActionItem.Status.OPEN,
+            )
+            action_item.full_clean()
+            action_item.save()
+
+        self.extraction_draft.review_status = (
+            MeetingMaterialExtractionDraft.ReviewStatus.APPROVED
+        )
+        self.extraction_draft.full_clean()
+        self.extraction_draft.save(update_fields=["review_status", "updated_at"])
+        return self.extraction_draft
 
 
 class FeedbackClusterSplitForm(forms.Form):

@@ -31,6 +31,8 @@ from weekly_planner.views import (
     FeedbackSubmissionView,
     HomeView,
     MeetingMaterialCreateView,
+    MeetingMaterialExtractionDraftApproveView,
+    MeetingMaterialExtractionDraftDiscardView,
     MeetingMaterialRetryView,
     ProjectDashboardView,
     ProjectsView,
@@ -163,6 +165,24 @@ urlpatterns = [
         ),
         MeetingMaterialRetryView.as_view(),
         name="meeting_material_retry",
+    ),
+    path(
+        (
+            "projects/<int:project_id>/cycles/<int:cycle_id>/board/"
+            "meeting-materials/<int:meeting_material_id>/drafts/"
+            "<int:extraction_draft_id>/approve/"
+        ),
+        MeetingMaterialExtractionDraftApproveView.as_view(),
+        name="meeting_material_extraction_draft_approve",
+    ),
+    path(
+        (
+            "projects/<int:project_id>/cycles/<int:cycle_id>/board/"
+            "meeting-materials/<int:meeting_material_id>/drafts/"
+            "<int:extraction_draft_id>/discard/"
+        ),
+        MeetingMaterialExtractionDraftDiscardView.as_view(),
+        name="meeting_material_extraction_draft_discard",
     ),
     path(
         "projects/<int:project_id>/cycles/<int:cycle_id>/board/discussion/topics/<int:cluster_id>/",

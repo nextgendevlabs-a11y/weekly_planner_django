@@ -91,6 +91,7 @@ class FeedbackCycle(models.Model):
     )
     opens_at = models.DateTimeField()
     closes_at = models.DateTimeField(blank=True, null=True)
+    approved_retrospective_summary_text = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -128,6 +129,9 @@ class FeedbackCycle(models.Model):
             raise ValidationError(
                 {"closes_at": "Closing time cannot be earlier than the opening time."}
             )
+        self.approved_retrospective_summary_text = (
+            self.approved_retrospective_summary_text.strip()
+        )
 
     @property
     def is_completed(self) -> bool:
@@ -451,17 +455,33 @@ class MeetingMaterialTranscript(models.Model):
 
 
 class MeetingMaterialExtractionDraft(models.Model):
+    class ReviewStatus(models.TextChoices):
+        PENDING = "pending", "Pending review"
+        APPROVED = "approved", "Approved"
+        DISCARDED = "discarded", "Discarded"
+
     meeting_material = models.OneToOneField(
         MeetingMaterial,
         on_delete=models.CASCADE,
         related_name="extraction_draft",
     )
     retrospective_summary_text = models.TextField(blank=True, default="")
+    review_status = models.CharField(
+        max_length=16,
+        choices=ReviewStatus.choices,
+        default=ReviewStatus.PENDING,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["meeting_material_id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(review_status__in=["pending", "approved", "discarded"]),
+                name="meeting_material_draft_review_status_is_mvp_status",
+            ),
+        ]
 
     @property
     def cycle(self):

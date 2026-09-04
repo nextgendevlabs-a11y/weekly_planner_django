@@ -307,48 +307,105 @@
                     {% endif %}
                     {% if material.extraction_draft %}
                       <div class="compact-stack">
-                        <h4>Draft extraction</h4>
-                        {% if material.extraction_draft.retrospective_summary_text %}
-                          <p><strong>Draft summary:</strong> {{ material.extraction_draft.retrospective_summary_text }}</p>
-                        {% else %}
-                          <p class="empty-state">No draft summary was extracted.</p>
-                        {% endif %}
+                        <h4>Extracted outcome review</h4>
+                        <p class="status-note">Review state: {{ material.extraction_draft.get_review_status_display }}</p>
 
-                        <h5>Draft decisions</h5>
-                        {% if material.extraction_draft.draft_decisions.all %}
-                          <ul class="feedback-card-list" aria-label="Draft decisions">
-                            {% for draft_decision in material.extraction_draft.draft_decisions.all %}
-                              <li class="feedback-card">
-                                <p>{{ draft_decision.text }}</p>
-                                <p class="status-note">
-                                  Topic candidate: {% if draft_decision.topic_candidate %}{{ draft_decision.topic_candidate }}{% else %}None{% endif %} |
-                                  Matched topic: {% if draft_decision.matched_topic %}{{ draft_decision.matched_topic.name }}{% else %}None{% endif %}
-                                </p>
-                              </li>
-                            {% endfor %}
-                          </ul>
-                        {% else %}
-                          <p class="empty-state">No draft decisions were extracted.</p>
-                        {% endif %}
+                        {% if material.extraction_draft.can_review %}
+                          <form class="stack compact-stack compact-action" method="post" action="{% url 'meeting_material_extraction_draft_approve' project_id=project.pk cycle_id=cycle.pk meeting_material_id=material.pk extraction_draft_id=material.extraction_draft.pk %}">
+                            {% csrf_token %}
+                            {{ material.extraction_draft.review_form.non_field_errors }}
+                            {{ material.extraction_draft.review_form.material_id }}
+                            {{ material.extraction_draft.review_form.extraction_draft_id }}
+                            {{ material.extraction_draft.review_form.draft_decision_count }}
+                            {{ material.extraction_draft.review_form.draft_action_item_count }}
 
-                        <h5>Draft action items</h5>
-                        {% if material.extraction_draft.draft_action_items.all %}
-                          <ul class="feedback-card-list" aria-label="Draft action items">
-                            {% for draft_action in material.extraction_draft.draft_action_items.all %}
-                              <li class="feedback-card">
-                                <p>{{ draft_action.description }}</p>
-                                <p class="status-note">
-                                  Owner candidate: {% if draft_action.owner_candidate %}{{ draft_action.owner_candidate }}{% else %}None{% endif %} |
-                                  Matched owner: {% if draft_action.matched_owner %}{{ draft_action.matched_owner.get_username }}{% else %}None{% endif %} |
-                                  Due: {% if draft_action.due_date %}{{ draft_action.due_date }}{% else %}No due date{% endif %} |
-                                  Topic candidate: {% if draft_action.topic_candidate %}{{ draft_action.topic_candidate }}{% else %}None{% endif %} |
-                                  Matched topic: {% if draft_action.matched_topic %}{{ draft_action.matched_topic.name }}{% else %}None{% endif %}
-                                </p>
-                              </li>
-                            {% endfor %}
-                          </ul>
+                            <div class="field">
+                              {{ material.extraction_draft.review_form.summary_text.errors }}
+                              {{ material.extraction_draft.review_form.summary_text.label_tag }}
+                              {{ material.extraction_draft.review_form.summary_text }}
+                            </div>
+                            {% if not material.extraction_draft.retrospective_summary_text %}
+                              <p class="empty-state">No draft summary was extracted.</p>
+                            {% endif %}
+
+                            <h5>Draft decisions</h5>
+                            {% if material.extraction_draft.review_form.decision_rows %}
+                              <ul class="feedback-card-list" aria-label="Draft decisions">
+                                {% for row in material.extraction_draft.review_form.decision_rows %}
+                                  <li class="feedback-card">
+                                    <p class="status-note">
+                                      Topic candidate: {% if row.draft.topic_candidate %}{{ row.draft.topic_candidate }}{% else %}None{% endif %} |
+                                      Matched topic: {% if row.draft.matched_topic %}{{ row.draft.matched_topic.name }}{% else %}None{% endif %}
+                                    </p>
+                                    <div class="field">
+                                      {{ row.text.errors }}
+                                      {{ row.text.label_tag }}
+                                      {{ row.text }}
+                                    </div>
+                                    <div class="field">
+                                      {{ row.topic.errors }}
+                                      {{ row.topic.label_tag }}
+                                      {{ row.topic }}
+                                    </div>
+                                  </li>
+                                {% endfor %}
+                              </ul>
+                            {% else %}
+                              <p class="empty-state">No draft decisions were extracted.</p>
+                            {% endif %}
+
+                            <h5>Draft action items</h5>
+                            {% if material.extraction_draft.review_form.action_item_rows %}
+                              <ul class="feedback-card-list" aria-label="Draft action items">
+                                {% for row in material.extraction_draft.review_form.action_item_rows %}
+                                  <li class="feedback-card">
+                                    <p class="status-note">
+                                      Owner candidate: {% if row.draft.owner_candidate %}{{ row.draft.owner_candidate }}{% else %}None{% endif %} |
+                                      Matched owner: {% if row.draft.matched_owner %}{{ row.draft.matched_owner.get_username }}{% else %}None{% endif %} |
+                                      Due: {% if row.draft.due_date %}{{ row.draft.due_date }}{% else %}No due date{% endif %} |
+                                      Topic candidate: {% if row.draft.topic_candidate %}{{ row.draft.topic_candidate }}{% else %}None{% endif %} |
+                                      Matched topic: {% if row.draft.matched_topic %}{{ row.draft.matched_topic.name }}{% else %}None{% endif %}
+                                    </p>
+                                    <div class="field">
+                                      {{ row.description.errors }}
+                                      {{ row.description.label_tag }}
+                                      {{ row.description }}
+                                    </div>
+                                    <div class="field">
+                                      {{ row.owner.errors }}
+                                      {{ row.owner.label_tag }}
+                                      {{ row.owner }}
+                                    </div>
+                                    <div class="field">
+                                      {{ row.due_date.errors }}
+                                      {{ row.due_date.label_tag }}
+                                      {{ row.due_date }}
+                                    </div>
+                                    <div class="field">
+                                      {{ row.topic.errors }}
+                                      {{ row.topic.label_tag }}
+                                      {{ row.topic }}
+                                    </div>
+                                  </li>
+                                {% endfor %}
+                              </ul>
+                            {% else %}
+                              <p class="empty-state">No draft action items were extracted.</p>
+                            {% endif %}
+
+                            {% if not material.extraction_draft.retrospective_summary_text and not material.extraction_draft.review_form.decision_rows and not material.extraction_draft.review_form.action_item_rows %}
+                              <p class="empty-state">No extracted outcomes are waiting in this draft.</p>
+                            {% endif %}
+
+                            <button class="button" type="submit">Approve extracted outcomes</button>
+                          </form>
+
+                          <form class="section-action" method="post" action="{% url 'meeting_material_extraction_draft_discard' project_id=project.pk cycle_id=cycle.pk meeting_material_id=material.pk extraction_draft_id=material.extraction_draft.pk %}">
+                            {% csrf_token %}
+                            <button class="button secondary-button" type="submit">Discard extracted outcomes</button>
+                          </form>
                         {% else %}
-                          <p class="empty-state">No draft action items were extracted.</p>
+                          <p class="empty-state">This extraction draft is not awaiting review.</p>
                         {% endif %}
                       </div>
                     {% endif %}
