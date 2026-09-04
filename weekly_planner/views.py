@@ -2,6 +2,7 @@
 
 from django.contrib.auth import login
 from django.contrib.auth.forms import UserCreationForm
+from django.db import transaction
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
@@ -16,13 +17,70 @@ from projects.forms import (
     FeedbackCardForm,
     FeedbackClusterForm,
     FeedbackClusterSplitForm,
+    FeedbackClusterSuggestionDraftForm,
     FeedbackCycleCreateForm,
 )
+from projects.cluster_suggestions import draft_from_suggestions, get_clustering_service
 from projects.models import FeedbackCard, FeedbackCluster, FeedbackCycle, Project
 from projects.permissions import can_facilitate_project, facilitatable_projects_for
 from projects.permissions import viewable_projects_for
-from projects.retrospective_board import retrospective_board_context_for
+from projects.retrospective_board import (
+    retrospective_board_context_for,
+    suggestion_draft_context_for,
+)
 from projects.submission_progress import submission_progress_for
+
+
+SUGGESTION_DRAFT_SESSION_KEY = "feedback_cluster_suggestion_drafts"
+
+
+def _suggestion_draft_key(cycle):
+    return f"{cycle.project_id}:{cycle.pk}"
+
+
+def _saved_suggestion_draft(request, cycle):
+    drafts = request.session.get(SUGGESTION_DRAFT_SESSION_KEY, {})
+    return drafts.get(_suggestion_draft_key(cycle))
+
+
+def _save_suggestion_draft(request, cycle, draft):
+    drafts = request.session.get(SUGGESTION_DRAFT_SESSION_KEY, {}).copy()
+    drafts[_suggestion_draft_key(cycle)] = draft
+    request.session[SUGGESTION_DRAFT_SESSION_KEY] = drafts
+    request.session.modified = True
+
+
+def _clear_suggestion_draft(request, cycle):
+    drafts = request.session.get(SUGGESTION_DRAFT_SESSION_KEY, {}).copy()
+    drafts.pop(_suggestion_draft_key(cycle), None)
+    request.session[SUGGESTION_DRAFT_SESSION_KEY] = drafts
+    request.session.modified = True
+
+
+def _draft_from_post_for_render(data, cycle):
+    try:
+        suggestion_count = int(data.get("suggestion_count", 0))
+    except (TypeError, ValueError):
+        suggestion_count = 0
+    suggestion_count = max(suggestion_count, 0)
+    clusters = [
+        {"name": data.get(f"suggestion-{index}-name", ""), "card_ids": []}
+        for index in range(suggestion_count)
+    ]
+
+    for card_id in cycle.feedback_cards.values_list("id", flat=True):
+        suggestion_value = data.get(f"card-{card_id}-suggestion", "")
+        if not suggestion_value.isdigit():
+            continue
+        suggestion_index = int(suggestion_value)
+        if suggestion_index < suggestion_count:
+            clusters[suggestion_index]["card_ids"].append(card_id)
+
+    return {"clusters": clusters}
+
+
+def _form_errors(form):
+    return [str(error) for error in form.non_field_errors()]
 
 
 class HomeView(TemplateView):
@@ -410,6 +468,9 @@ class RetrospectiveCycleFacilitatorMixin(LoginRequiredMixin):
         invalid_rename_forms=None,
         invalid_split_forms=None,
         merge_errors=None,
+        suggestion_draft=None,
+        suggestion_errors=None,
+        suggestion_empty_message="",
     ):
         view = RetrospectiveBoardView()
         view.setup(self.request, *self.args, **self.kwargs)
@@ -418,6 +479,9 @@ class RetrospectiveCycleFacilitatorMixin(LoginRequiredMixin):
             invalid_rename_forms=invalid_rename_forms or {},
             invalid_split_forms=invalid_split_forms or {},
             merge_errors=merge_errors or {},
+            suggestion_draft=suggestion_draft,
+            suggestion_errors=suggestion_errors or [],
+            suggestion_empty_message=suggestion_empty_message,
         )
         return view.render_to_response(context)
 
@@ -468,6 +532,17 @@ class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
             for cluster in board_context["clusters"]
         ]
         context["category_sections"] = board_context["ungrouped_sections"]
+        suggestion_draft = kwargs.get("suggestion_draft")
+        if suggestion_draft is None and can_facilitate:
+            suggestion_draft = _saved_suggestion_draft(self.request, cycle)
+        context["suggestion_draft"] = None
+        if can_facilitate and suggestion_draft is not None:
+            context["suggestion_draft"] = suggestion_draft_context_for(
+                cycle,
+                suggestion_draft,
+                errors=kwargs.get("suggestion_errors", []),
+                empty_message=kwargs.get("suggestion_empty_message", ""),
+            )
         return context
 
 
@@ -602,4 +677,86 @@ class FeedbackClusterSplitView(RetrospectiveCycleFacilitatorMixin, View):
             name=form.cleaned_data["name"],
         )
         form.cleaned_data["cards"].update(cluster=new_cluster)
+        return redirect(self.get_success_url())
+
+
+class FeedbackClusterSuggestionGenerateView(RetrospectiveCycleFacilitatorMixin, View):
+    """Create or refresh an editable draft of local clustering suggestions."""
+
+    def post(self, request, *args, **kwargs):
+        cycle = self.get_cycle()
+        if not cycle.feedback_cards.exists():
+            draft = {
+                "clusters": [],
+                "empty_message": "No revealed feedback cards are available for suggestions.",
+            }
+            _save_suggestion_draft(request, cycle, draft)
+            return self.render_board(suggestion_draft=draft)
+
+        suggestions = get_clustering_service().suggest_clusters(cycle)
+        draft = draft_from_suggestions(suggestions)
+        if not draft["clusters"]:
+            draft["empty_message"] = "No clustering suggestions were found."
+        _save_suggestion_draft(request, cycle, draft)
+        return self.render_board(suggestion_draft=draft)
+
+
+class FeedbackClusterSuggestionEditView(RetrospectiveCycleFacilitatorMixin, View):
+    """Preview facilitator edits to draft suggestion names and card membership."""
+
+    def post(self, request, *args, **kwargs):
+        form = FeedbackClusterSuggestionDraftForm(
+            request.POST,
+            cycle=self.get_cycle(),
+        )
+        draft = _draft_from_post_for_render(request.POST, self.get_cycle())
+        if not form.is_valid():
+            return self.render_board(
+                suggestion_draft=draft,
+                suggestion_errors=_form_errors(form),
+            )
+
+        draft = form.draft()
+        _save_suggestion_draft(request, self.get_cycle(), draft)
+        return self.render_board(suggestion_draft=draft)
+
+
+class FeedbackClusterSuggestionAcceptView(RetrospectiveCycleFacilitatorMixin, View):
+    """Accept an edited draft as regular manual clusters on the board."""
+
+    def post(self, request, *args, **kwargs):
+        cycle = self.get_cycle()
+        form = FeedbackClusterSuggestionDraftForm(
+            request.POST,
+            cycle=cycle,
+            require_clusters=True,
+        )
+        draft = _draft_from_post_for_render(request.POST, cycle)
+        if not form.is_valid():
+            return self.render_board(
+                suggestion_draft=draft,
+                suggestion_errors=_form_errors(form),
+            )
+
+        draft = form.draft()
+        with transaction.atomic():
+            for suggested_cluster in draft["clusters"]:
+                cluster = FeedbackCluster.objects.create(
+                    cycle=cycle,
+                    name=suggested_cluster["name"],
+                )
+                FeedbackCard.objects.filter(
+                    cycle=cycle,
+                    pk__in=suggested_cluster["card_ids"],
+                ).update(cluster=cluster)
+
+        _clear_suggestion_draft(request, cycle)
+        return redirect(self.get_success_url())
+
+
+class FeedbackClusterSuggestionIgnoreView(RetrospectiveCycleFacilitatorMixin, View):
+    """Discard the current draft suggestions without changing board state."""
+
+    def post(self, request, *args, **kwargs):
+        _clear_suggestion_draft(request, self.get_cycle())
         return redirect(self.get_success_url())

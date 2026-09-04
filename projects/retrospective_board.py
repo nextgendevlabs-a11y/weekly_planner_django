@@ -81,3 +81,44 @@ def retrospective_board_context_for(cycle):
 
 def retrospective_board_sections_for(cycle):
     return retrospective_board_context_for(cycle)["ungrouped_sections"]
+
+
+def suggestion_draft_context_for(cycle, draft, *, errors=None, empty_message=""):
+    cards = revealed_feedback_cards_for(cycle)
+    cards_by_id = {card["id"]: card for card in cards}
+    clusters = []
+    selected_by_card_id = {}
+
+    for index, cluster in enumerate(draft.get("clusters", [])):
+        cluster_cards = []
+        for card_id in cluster.get("card_ids", []):
+            if card_id not in cards_by_id:
+                continue
+            card = cards_by_id[card_id]
+            cluster_cards.append(card)
+            selected_by_card_id[card_id] = index
+
+        clusters.append(
+            {
+                "index": index,
+                "index_value": str(index),
+                "name": cluster.get("name", ""),
+                "cards": cluster_cards,
+            }
+        )
+
+    cards_for_membership = []
+    for card in cards:
+        card = card.copy()
+        selected_index = selected_by_card_id.get(card["id"])
+        card["draft_cluster_index"] = (
+            "" if selected_index is None else str(selected_index)
+        )
+        cards_for_membership.append(card)
+
+    return {
+        "clusters": clusters,
+        "cards": cards_for_membership,
+        "errors": errors or [],
+        "empty_message": empty_message or draft.get("empty_message", ""),
+    }

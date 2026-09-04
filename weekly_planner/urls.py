@@ -15,6 +15,10 @@ from weekly_planner.views import (
     FeedbackClusterMergeView,
     FeedbackClusterRenameView,
     FeedbackClusterSplitView,
+    FeedbackClusterSuggestionAcceptView,
+    FeedbackClusterSuggestionEditView,
+    FeedbackClusterSuggestionGenerateView,
+    FeedbackClusterSuggestionIgnoreView,
     FeedbackCycleCreateView,
     FeedbackCycleRevealView,
     FeedbackSubmissionView,
@@ -100,6 +104,26 @@ urlpatterns = [
         "projects/<int:project_id>/cycles/<int:cycle_id>/board/clusters/<int:cluster_id>/split/",
         FeedbackClusterSplitView.as_view(),
         name="feedback_cluster_split",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/suggestions/generate/",
+        FeedbackClusterSuggestionGenerateView.as_view(),
+        name="feedback_cluster_suggestions_generate",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/suggestions/edit/",
+        FeedbackClusterSuggestionEditView.as_view(),
+        name="feedback_cluster_suggestions_edit",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/suggestions/accept/",
+        FeedbackClusterSuggestionAcceptView.as_view(),
+        name="feedback_cluster_suggestions_accept",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/board/suggestions/ignore/",
+        FeedbackClusterSuggestionIgnoreView.as_view(),
+        name="feedback_cluster_suggestions_ignore",
     ),
     path("admin/", admin.site.urls),
 ]

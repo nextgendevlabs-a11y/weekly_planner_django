@@ -135,3 +135,65 @@ class FeedbackClusterSplitForm(forms.Form):
         if not name.strip():
             raise forms.ValidationError("Cluster name cannot be empty.")
         return name.strip()
+
+
+class FeedbackClusterSuggestionDraftForm(forms.Form):
+    suggestion_count = forms.IntegerField(min_value=0)
+
+    def __init__(self, *args, cycle, require_clusters=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cycle = cycle
+        self.require_clusters = require_clusters
+        self.cards = list(cycle.feedback_cards.all())
+        self.valid_card_ids = {card.pk for card in self.cards}
+
+    def clean(self):
+        cleaned_data = super().clean()
+        suggestion_count = cleaned_data.get("suggestion_count")
+        if suggestion_count is None:
+            raise forms.ValidationError("Draft suggestions could not be read.")
+        if self.require_clusters and suggestion_count == 0:
+            raise forms.ValidationError("There are no draft suggestions to accept.")
+
+        names = []
+        for index in range(suggestion_count):
+            name = self.data.get(f"suggestion-{index}-name", "")
+            if not name.strip():
+                raise forms.ValidationError("Cluster name cannot be empty.")
+            names.append(name.strip())
+
+        for key in self.data:
+            if key.startswith("suggestion-") and key.endswith("-name"):
+                index_value = key.removeprefix("suggestion-").removesuffix("-name")
+                if not index_value.isdigit() or int(index_value) >= suggestion_count:
+                    raise forms.ValidationError("Draft suggestions could not be read.")
+
+        clusters = [{"name": name, "card_ids": []} for name in names]
+        for key in self.data:
+            if not key.startswith("card-") or not key.endswith("-suggestion"):
+                continue
+
+            card_id_value = key.removeprefix("card-").removesuffix("-suggestion")
+            if not card_id_value.isdigit():
+                raise forms.ValidationError("Draft suggestions could not be read.")
+
+            card_id = int(card_id_value)
+            if card_id not in self.valid_card_ids:
+                raise forms.ValidationError("Draft contains a card outside this cycle.")
+
+            suggestion_value = self.data.get(key, "")
+            if suggestion_value == "":
+                continue
+            if not suggestion_value.isdigit():
+                raise forms.ValidationError("Draft suggestions could not be read.")
+
+            suggestion_index = int(suggestion_value)
+            if suggestion_index >= suggestion_count:
+                raise forms.ValidationError("Draft suggestions could not be read.")
+            clusters[suggestion_index]["card_ids"].append(card_id)
+
+        cleaned_data["clusters"] = clusters
+        return cleaned_data
+
+    def draft(self) -> dict:
+        return {"clusters": self.cleaned_data["clusters"]}

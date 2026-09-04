@@ -23,6 +23,99 @@
           <button class="button" type="submit">Create cluster</button>
         </form>
       </section>
+
+      <section class="status-section" aria-labelledby="suggestions-heading">
+        <div class="section-heading">
+          <h2 id="suggestions-heading">AI cluster suggestions</h2>
+          <p class="status-note">Draft suggestions stay separate until accepted.</p>
+        </div>
+
+        <form class="section-action" method="post" action="{% url 'feedback_cluster_suggestions_generate' project_id=project.pk cycle_id=cycle.pk %}">
+          {% csrf_token %}
+          <button class="button" type="submit">
+            {% if suggestion_draft %}Refresh suggestions{% else %}Generate suggestions{% endif %}
+          </button>
+        </form>
+
+        {% if suggestion_draft %}
+          <div class="suggestion-draft" aria-label="Draft cluster suggestions">
+            {% if suggestion_draft.errors %}
+              <ul class="errorlist">
+                {% for error in suggestion_draft.errors %}
+                  <li>{{ error }}</li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+
+            {% if suggestion_draft.empty_message %}
+              <p class="empty-state">{{ suggestion_draft.empty_message }}</p>
+            {% endif %}
+
+            <form class="stack compact-stack" method="post" action="{% url 'feedback_cluster_suggestions_edit' project_id=project.pk cycle_id=cycle.pk %}">
+              {% csrf_token %}
+              <input type="hidden" name="suggestion_count" value="{{ suggestion_draft.clusters|length }}">
+
+              {% if suggestion_draft.clusters %}
+                <div class="cluster-list">
+                  {% for draft_cluster in suggestion_draft.clusters %}
+                    <article class="cluster-panel" aria-labelledby="draft-cluster-{{ draft_cluster.index }}-heading">
+                      <div class="field">
+                        <label for="id_suggestion_{{ draft_cluster.index }}_name">Draft cluster name</label>
+                        <input id="id_suggestion_{{ draft_cluster.index }}_name" name="suggestion-{{ draft_cluster.index }}-name" value="{{ draft_cluster.name }}">
+                      </div>
+
+                      <h3 id="draft-cluster-{{ draft_cluster.index }}-heading">{{ draft_cluster.name }}</h3>
+                      {% if draft_cluster.cards %}
+                        <ul class="feedback-card-list" aria-label="{{ draft_cluster.name }} draft cards">
+                          {% for card in draft_cluster.cards %}
+                            <li class="feedback-card">
+                              <p>{{ card.text }}</p>
+                              <p class="status-note">{{ card.category_label }} - {{ card.author_label }}</p>
+                            </li>
+                          {% endfor %}
+                        </ul>
+                      {% else %}
+                        <p class="empty-state">No cards are included in this draft cluster.</p>
+                      {% endif %}
+                    </article>
+                  {% endfor %}
+                </div>
+
+                <fieldset>
+                  <legend>Draft card membership</legend>
+                  <ul class="suggestion-card-controls">
+                    {% for card in suggestion_draft.cards %}
+                      <li>
+                        <label for="id_card_{{ card.id }}_suggestion">{{ card.category_label }} - {{ card.author_label }}: {{ card.text }}</label>
+                        <select id="id_card_{{ card.id }}_suggestion" name="card-{{ card.id }}-suggestion">
+                          <option value=""{% if card.draft_cluster_index == "" %} selected{% endif %}>Leave out of accepted suggestions</option>
+                          {% for draft_cluster in suggestion_draft.clusters %}
+                            <option value="{{ draft_cluster.index }}"{% if card.draft_cluster_index == draft_cluster.index_value %} selected{% endif %}>{{ draft_cluster.name }}</option>
+                          {% endfor %}
+                        </select>
+                      </li>
+                    {% endfor %}
+                  </ul>
+                </fieldset>
+              {% endif %}
+
+              <div class="cluster-actions">
+                <button class="button secondary-button" type="submit" formaction="{% url 'feedback_cluster_suggestions_edit' project_id=project.pk cycle_id=cycle.pk %}">
+                  Update draft
+                </button>
+                <button class="button" type="submit" formaction="{% url 'feedback_cluster_suggestions_accept' project_id=project.pk cycle_id=cycle.pk %}">
+                  Accept suggestions
+                </button>
+              </div>
+            </form>
+
+            <form class="section-action" method="post" action="{% url 'feedback_cluster_suggestions_ignore' project_id=project.pk cycle_id=cycle.pk %}">
+              {% csrf_token %}
+              <button class="button secondary-button" type="submit">Ignore suggestions</button>
+            </form>
+          </div>
+        {% endif %}
+      </section>
     {% endif %}
 
     <section class="stack" aria-labelledby="clusters-heading">
