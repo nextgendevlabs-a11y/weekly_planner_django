@@ -9,7 +9,7 @@ def submission_progress_for(cycle):
         author=OuterRef("user_id"),
     )
     memberships = (
-        Membership.objects.filter(project=cycle.project)
+        Membership.objects.filter(project=cycle.project, user__is_active=True)
         .select_related("user")
         .annotate(has_submitted_feedback=Exists(submitted_cards))
         .order_by("user__username", "user__id")

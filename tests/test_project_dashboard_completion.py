@@ -303,11 +303,13 @@ def test_collecting_dashboard_shows_own_submission_and_facilitator_progress_with
     client,
 ):
     facilitator = create_user("facilitator")
+    inactive_member = create_user("inactive-member", is_active=False)
     submitted_member = create_user("submitted-member")
     waiting_member = create_user("waiting-member")
     project = create_project("Collecting Dashboard Project")
     other_project = create_project("Other Collecting Dashboard Project")
     add_membership(facilitator, project, Membership.Role.FACILITATOR)
+    add_membership(inactive_member, project)
     add_membership(submitted_member, project)
     add_membership(waiting_member, project)
     active_cycle = create_cycle(project, facilitator, label="Current Collecting Week")
@@ -326,6 +328,7 @@ def test_collecting_dashboard_shows_own_submission_and_facilitator_progress_with
         is_anonymous=True,
     )
     create_card(completed_cycle, waiting_member, text="Old card should not count")
+    create_card(active_cycle, inactive_member, text="Inactive card should not count")
     create_card(other_cycle, waiting_member, text="Other project card should not count")
 
     client.force_login(facilitator)
@@ -356,6 +359,8 @@ def test_collecting_dashboard_shows_own_submission_and_facilitator_progress_with
         facilitator_response,
         [
             "Sensitive anonymous current-cycle text",
+            "Inactive card should not count",
+            "inactive-member",
             "Old card should not count",
             "Other project card should not count",
             "Stop",
