@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% block title %}{{ cycle.label }} Summary - Weekly Planner{% endblock %}
+
+{% block content %}
+  <section class="stack" aria-labelledby="summary-heading">
+    <div class="page-heading">
+      <h1 id="summary-heading">{{ project.name }}</h1>
+      <p>{{ cycle.label }} completed retrospective summary</p>
+    </div>
+
+    <section class="status-section" aria-labelledby="approved-summary-heading">
+      <h2 id="approved-summary-heading">Approved summary</h2>
+      {% if approved_summary_text %}
+        <p>{{ approved_summary_text|linebreaksbr }}</p>
+      {% else %}
+        <p class="empty-state">No approved summary saved.</p>
+      {% endif %}
+    </section>
+
+    <section class="status-section" aria-labelledby="summary-topics-heading">
+      <h2 id="summary-topics-heading">Top discussion topics</h2>
+      {% if topics %}
+        <ol class="feedback-card-list" aria-label="Ranked discussion topics">
+          {% for topic in topics %}
+            <li class="feedback-card">
+              <p><strong>{{ topic.name }}</strong></p>
+              <p class="status-note">
+                {{ topic.vote_total }} vote{{ topic.vote_total|pluralize }} |
+                Status: {{ topic.discussion_status_label }}
+              </p>
+              <h3>Discussion notes</h3>
+              {% if topic.discussion_notes %}
+                <p>{{ topic.discussion_notes|linebreaksbr }}</p>
+              {% else %}
+                <p class="empty-state">No discussion notes saved.</p>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <p class="empty-state">No discussion topics saved.</p>
+      {% endif %}
+    </section>
+
+    <section class="status-section" aria-labelledby="summary-decisions-heading">
+      <h2 id="summary-decisions-heading">Confirmed decisions</h2>
+      {% if decisions %}
+        <ul class="feedback-card-list" aria-label="Confirmed decisions">
+          {% for decision in decisions %}
+            <li class="feedback-card">
+              <p><strong>{{ decision.text }}</strong></p>
+              <p class="status-note">
+                Topic: {% if decision.topic %}{{ decision.topic.name }}{% else %}No related topic{% endif %}
+              </p>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="empty-state">No confirmed decisions saved.</p>
+      {% endif %}
+    </section>
+
+    <section class="status-section" aria-labelledby="summary-actions-heading">
+      <h2 id="summary-actions-heading">Confirmed action items</h2>
+      {% if action_items %}
+        <ul class="feedback-card-list" aria-label="Confirmed action items">
+          {% for action_item in action_items %}
+            <li class="feedback-card">
+              <p><strong>{{ action_item.description }}</strong></p>
+              <p class="status-note">
+                Owner: {{ action_item.owner.get_username }} |
+                Due: {% if action_item.due_date %}{{ action_item.due_date }}{% else %}No due date{% endif %} |
+                Status: {{ action_item.get_status_display }} |
+                Topic: {{ action_item.topic.name }}
+              </p>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="empty-state">No confirmed action items saved.</p>
+      {% endif %}
+    </section>
+
+    <section class="status-section" aria-labelledby="summary-attendance-heading">
+      <h2 id="summary-attendance-heading">Attendance and participation</h2>
+      {% if attendees %}
+        <ul class="submission-status-list" aria-label="Selected attendees">
+          {% for attendee in attendees %}
+            <li><span>{{ attendee.label }}</span><strong>Attended</strong></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="empty-state">No attendees selected.</p>
+      {% endif %}
+
+      <ul class="submission-status-list" aria-label="Aggregate participation counts">
+        <li>
+          <span>Active project members at publication</span>
+          <strong>{{ active_member_count_at_publication }}</strong>
+        </li>
+        <li>
+          <span>Members who submitted feedback</span>
+          <strong>{{ submitted_member_count }}</strong>
+        </li>
+        <li>
+          <span>Eligible members who completed voting</span>
+          <strong>{{ completed_voter_count }}</strong>
+        </li>
+      </ul>
+    </section>
+
+    <section class="status-section" aria-labelledby="summary-cards-heading">
+      <h2 id="summary-cards-heading">Original feedback cards</h2>
+      {% if feedback_cards %}
+        <ul class="feedback-card-list" aria-label="Original feedback cards">
+          {% for card in feedback_cards %}
+            <li class="feedback-card">
+              <p><strong>{{ card.category_label }}</strong></p>
+              <p>{{ card.text }}</p>
+              <p class="status-note">
+                Contributor: {{ card.author_label }} |
+                Topic: {% if card.topic_name %}{{ card.topic_name }}{% else %}Ungrouped{% endif %}
+              </p>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="empty-state">No original feedback cards saved.</p>
+      {% endif %}
+    </section>
+  </section>
+{% endblock %}

@@ -10,6 +10,7 @@ from weekly_planner.views import (
     ActionItemCreateView,
     ActionItemOwnerCompleteView,
     ActionItemUpdateView,
+    CompletedRetrospectiveSummaryView,
     FeedbackCardCreateView,
     FeedbackCardDeleteView,
     FeedbackCardClusterMoveView,
@@ -36,6 +37,7 @@ from weekly_planner.views import (
     MeetingMaterialRetryView,
     ProjectDashboardView,
     ProjectsView,
+    RetrospectiveSummaryPublishView,
     RetrospectiveBoardView,
     RetrospectiveDecisionCreateView,
     RetrospectiveDecisionUpdateView,
@@ -92,6 +94,16 @@ urlpatterns = [
         "projects/<int:project_id>/cycles/<int:cycle_id>/board/",
         RetrospectiveBoardView.as_view(),
         name="retrospective_board",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/publish-summary/",
+        RetrospectiveSummaryPublishView.as_view(),
+        name="retrospective_summary_publish",
+    ),
+    path(
+        "projects/<int:project_id>/cycles/<int:cycle_id>/summary/",
+        CompletedRetrospectiveSummaryView.as_view(),
+        name="retrospective_summary",
     ),
     path(
         "projects/<int:project_id>/cycles/<int:cycle_id>/board/clusters/add/",

@@ -671,6 +671,9 @@ def test_discussion_scope_does_not_create_provider_or_summary_data(client):
 
     assert response.status_code == 302
     assert model_names_after == model_names_before
+    cycle.refresh_from_db()
+    assert cycle.status == FeedbackCycle.Status.RETROSPECTIVE
+    assert cycle.approved_retrospective_summary_text == ""
     assert "transcription provider" not in content
-    assert "summary" not in content
+    assert "approved summary" not in content
     assert "ai-extracted" not in content

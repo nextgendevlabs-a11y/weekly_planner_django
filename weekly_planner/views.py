@@ -25,6 +25,7 @@ from projects.forms import (
     FeedbackCycleCreateForm,
     MeetingMaterialExtractionDraftReviewForm,
     MeetingMaterialForm,
+    RetrospectiveSummaryPublishForm,
     RetrospectiveDecisionForm,
 )
 from projects.cluster_suggestions import draft_from_suggestions, get_clustering_service
@@ -41,6 +42,7 @@ from projects.models import (
     MeetingMaterial,
     MeetingMaterialExtractionDraft,
     Project,
+    RetrospectiveAttendance,
     RetrospectiveDecision,
 )
 from projects.models import Membership
@@ -51,6 +53,7 @@ from projects.retrospective_board import (
     suggestion_draft_context_for,
 )
 from projects.submission_progress import submission_progress_for
+from projects.summary import retrospective_summary_context_for
 from projects.voting import (
     close_voting,
     open_voting,
@@ -158,6 +161,39 @@ def _posted_review_object_ids_or_404(data, *, prefix, suffixes, valid_ids, messa
     return seen_ids
 
 
+def _posted_int_values_or_404(data, field_name, message):
+    values = set()
+    for value in data.getlist(field_name):
+        if not value.isdigit():
+            raise Http404(message)
+        values.add(int(value))
+    return values
+
+
+def _publish_blockers_for(cycle):
+    blockers = []
+    if cycle.meeting_materials.filter(
+        processing_status__in=[
+            MeetingMaterial.ProcessingStatus.QUEUED,
+            MeetingMaterial.ProcessingStatus.PROCESSING,
+        ]
+    ).exists():
+        blockers.append(
+            "Meeting material is still processing. Wait for current-cycle processing to finish before publishing."
+        )
+
+    if cycle.meeting_materials.filter(
+        processing_status=MeetingMaterial.ProcessingStatus.SUCCEEDED,
+        extraction_draft__review_status=(
+            MeetingMaterialExtractionDraft.ReviewStatus.PENDING
+        ),
+    ).exists():
+        blockers.append(
+            "Extracted meeting outcomes are pending review. Approve or discard current-cycle drafts before publishing."
+        )
+    return blockers
+
+
 class HomeView(TemplateView):
     """Public landing page for the retrospective workflow."""
 
@@ -243,6 +279,10 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
         for action_item in open_action_items:
             action_item.can_owner_complete = action_item.owner_id == self.request.user.pk
         context["open_action_items"] = open_action_items
+        context["completed_cycles"] = list(
+            self.object.feedback_cycles.filter(status=FeedbackCycle.Status.COMPLETED)
+            .order_by("-opens_at", "-id")
+        )
         return context
 
 
@@ -752,6 +792,209 @@ class RetrospectiveCycleFacilitatorMixin(LoginRequiredMixin):
                 raise Http404("No review topic matches the given query.")
 
 
+class RetrospectiveSummaryPublishView(RetrospectiveCycleFacilitatorMixin, TemplateView):
+    """Facilitator-only publication workflow for one closed-voting cycle."""
+
+    template_name = "projects/retrospective_summary_publish.html"
+
+    def get_success_url(self):
+        return reverse(
+            "retrospective_summary",
+            kwargs={
+                "project_id": self.get_project().pk,
+                "cycle_id": self.kwargs["cycle_id"],
+            },
+        )
+
+    def require_publishable_cycle(self):
+        if self.get_cycle().voting_status != FeedbackCycle.VotingStatus.CLOSED:
+            raise Http404("No publishable retrospective matches the given query.")
+
+    def _posted_reference_ids(self, field_names, message):
+        posted_ids = set()
+        for field_name in field_names:
+            for value in self.request.POST.getlist(field_name):
+                if value == "":
+                    continue
+                if not value.isdigit():
+                    raise Http404(message)
+                posted_ids.add(int(value))
+        return posted_ids
+
+    def require_posted_summary_scope(self):
+        project_ids = self._posted_reference_ids(
+            ["project", "project_id"],
+            "No publishable retrospective matches the given query.",
+        )
+        if project_ids and project_ids != {self.get_project().pk}:
+            raise Http404("No publishable retrospective matches the given query.")
+
+        cycle_ids = self._posted_reference_ids(
+            ["cycle", "cycle_id"],
+            "No publishable retrospective matches the given query.",
+        )
+        if cycle_ids and cycle_ids != {self.get_cycle().pk}:
+            raise Http404("No publishable retrospective matches the given query.")
+
+        scope_checks = [
+            (
+                ["topic", "topic_id", "cluster", "cluster_id"],
+                set(self.get_cycle().feedback_clusters.values_list("id", flat=True)),
+                "No summary topic matches the given query.",
+            ),
+            (
+                ["feedback_card", "feedback_card_id", "card", "card_id"],
+                set(self.get_cycle().feedback_cards.values_list("id", flat=True)),
+                "No summary feedback card matches the given query.",
+            ),
+            (
+                ["decision", "decision_id"],
+                set(self.get_cycle().decisions.values_list("id", flat=True)),
+                "No summary decision matches the given query.",
+            ),
+            (
+                ["action_item", "action_item_id"],
+                set(self.get_cycle().action_items.values_list("id", flat=True)),
+                "No summary action item matches the given query.",
+            ),
+            (
+                ["meeting_material", "meeting_material_id", "material_id"],
+                set(self.get_cycle().meeting_materials.values_list("id", flat=True)),
+                "No summary meeting material matches the given query.",
+            ),
+            (
+                ["extraction_draft", "extraction_draft_id", "draft_id"],
+                set(
+                    MeetingMaterialExtractionDraft.objects.filter(
+                        meeting_material__cycle=self.get_cycle()
+                    ).values_list("id", flat=True)
+                ),
+                "No summary extraction draft matches the given query.",
+            ),
+        ]
+        for field_names, valid_ids, message in scope_checks:
+            posted_ids = self._posted_reference_ids(field_names, message)
+            if posted_ids and not posted_ids <= valid_ids:
+                raise Http404(message)
+
+    def active_member_ids(self):
+        return set(
+            Membership.objects.filter(
+                project=self.get_project(),
+                user__is_active=True,
+            ).values_list("user_id", flat=True)
+        )
+
+    def posted_attendee_ids(self):
+        attendee_ids = _posted_int_values_or_404(
+            self.request.POST,
+            "attendees",
+            "No attendee matches the given query.",
+        )
+        if not attendee_ids <= self.active_member_ids():
+            raise Http404("No attendee matches the given query.")
+        return attendee_ids
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        self.require_publishable_cycle()
+        cycle = self.get_cycle()
+        blockers = _publish_blockers_for(cycle)
+        context["project"] = self.get_project()
+        context["cycle"] = cycle
+        context["blockers"] = blockers
+        context["can_publish"] = not blockers
+        context["publish_form"] = kwargs.get(
+            "publish_form",
+            RetrospectiveSummaryPublishForm(cycle=cycle, auto_id="id_publish_%s"),
+        )
+        return context
+
+    def post(self, request, *args, **kwargs):
+        self.require_publishable_cycle()
+        self.require_posted_summary_scope()
+        blockers = _publish_blockers_for(self.get_cycle())
+        if blockers:
+            return self.render_to_response(
+                self.get_context_data(blockers=blockers)
+            )
+
+        attendee_ids = self.posted_attendee_ids()
+        form = RetrospectiveSummaryPublishForm(request.POST, cycle=self.get_cycle())
+        if not form.is_valid():
+            raise Http404("No attendee matches the given query.")
+
+        with transaction.atomic():
+            cycle = get_object_or_404(
+                FeedbackCycle.objects.select_for_update().filter(
+                    project=self.get_project(),
+                    pk=self.kwargs["cycle_id"],
+                    status=FeedbackCycle.Status.RETROSPECTIVE,
+                    voting_status=FeedbackCycle.VotingStatus.CLOSED,
+                )
+            )
+            blockers = _publish_blockers_for(cycle)
+            if blockers:
+                return self.render_to_response(
+                    self.get_context_data(blockers=blockers)
+                )
+
+            active_member_ids = self.active_member_ids()
+            if not attendee_ids <= active_member_ids:
+                raise Http404("No attendee matches the given query.")
+
+            cycle.status = FeedbackCycle.Status.COMPLETED
+            cycle.summary_active_member_count = len(active_member_ids)
+            cycle.full_clean()
+            cycle.save(
+                update_fields=[
+                    "status",
+                    "summary_active_member_count",
+                    "updated_at",
+                ]
+            )
+            RetrospectiveAttendance.objects.bulk_create(
+                [
+                    RetrospectiveAttendance(cycle=cycle, user_id=user_id)
+                    for user_id in sorted(attendee_ids)
+                ]
+            )
+
+        return redirect(self.get_success_url())
+
+
+class CompletedRetrospectiveSummaryView(LoginRequiredMixin, TemplateView):
+    """Read-only published summary for active members of one completed cycle."""
+
+    template_name = "projects/retrospective_summary.html"
+
+    def get_project(self):
+        if not hasattr(self, "_project"):
+            self._project = get_object_or_404(
+                viewable_projects_for(self.request.user),
+                pk=self.kwargs["project_id"],
+            )
+        return self._project
+
+    def get_cycle(self):
+        if not hasattr(self, "_cycle"):
+            self._cycle = get_object_or_404(
+                self.get_project().feedback_cycles.filter(
+                    status=FeedbackCycle.Status.COMPLETED,
+                ),
+                pk=self.kwargs["cycle_id"],
+            )
+        return self._cycle
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        cycle = self.get_cycle()
+        context["project"] = self.get_project()
+        context["cycle"] = cycle
+        context.update(retrospective_summary_context_for(cycle))
+        return context
+
+
 class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
     """Revealed board for Start, Stop, and Continue feedback themes."""
 
@@ -872,6 +1115,7 @@ class RetrospectiveBoardView(RetrospectiveCycleMemberMixin, TemplateView):
         context["ranked_clusters"] = ranked_clusters
         context["discussion_topics"] = ranked_clusters
         context["can_manage_discussion"] = can_manage_discussion
+        context["can_publish_summary"] = can_manage_discussion
         action_items = []
         decisions = []
         if cycle.voting_status == FeedbackCycle.VotingStatus.CLOSED:

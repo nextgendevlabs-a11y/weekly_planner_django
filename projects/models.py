@@ -92,6 +92,7 @@ class FeedbackCycle(models.Model):
     opens_at = models.DateTimeField()
     closes_at = models.DateTimeField(blank=True, null=True)
     approved_retrospective_summary_text = models.TextField(blank=True, default="")
+    summary_active_member_count = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -194,6 +195,45 @@ class FeedbackCluster(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name} ({self.cycle})"
+
+
+class RetrospectiveAttendance(models.Model):
+    cycle = models.ForeignKey(
+        FeedbackCycle,
+        on_delete=models.CASCADE,
+        related_name="attendance_records",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="retrospective_attendance_records",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["user__username", "user_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["cycle", "user"],
+                name="unique_retrospective_attendance",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.user_id is not None and self.cycle_id is not None:
+            is_active_member = Membership.objects.filter(
+                project=self.cycle.project,
+                user=self.user,
+                user__is_active=True,
+            ).exists()
+            if not is_active_member:
+                raise ValidationError(
+                    {"user": "Attendee must be an active project member."}
+                )
+
+    def __str__(self) -> str:
+        return f"{self.user} attended {self.cycle}"
 
 
 class ActionItem(models.Model):

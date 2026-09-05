@@ -718,6 +718,31 @@ class MeetingMaterialExtractionDraftReviewForm(forms.Form):
         return self.extraction_draft
 
 
+class RetrospectiveSummaryPublishForm(forms.Form):
+    attendees = forms.ModelMultipleChoiceField(
+        queryset=get_user_model().objects.none(),
+        required=False,
+        label="Attendees",
+        widget=forms.CheckboxSelectMultiple,
+        error_messages={
+            "invalid_choice": "Choose active members from this project.",
+        },
+    )
+
+    def __init__(self, *args, cycle, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cycle = cycle
+        self.fields["attendees"].queryset = (
+            get_user_model()
+            .objects.filter(
+                is_active=True,
+                project_memberships__project=cycle.project,
+            )
+            .distinct()
+            .order_by("username", "id")
+        )
+
+
 class FeedbackClusterSplitForm(forms.Form):
     name = forms.CharField(
         label="New cluster name",

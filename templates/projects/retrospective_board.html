@@ -445,6 +445,20 @@
             </form>
           {% endif %}
         </section>
+
+        {% if can_publish_summary %}
+          <section class="status-section" aria-labelledby="publish-summary-heading">
+            <div class="section-heading">
+              <h2 id="publish-summary-heading">Publish summary</h2>
+              <p class="status-note">Complete this retrospective and make the read-only summary available to project members.</p>
+            </div>
+            <p class="section-action">
+              <a class="button" href="{% url 'retrospective_summary_publish' project_id=project.pk cycle_id=cycle.pk %}">
+                Publish summary
+              </a>
+            </p>
+          </section>
+        {% endif %}
       {% endif %}
     </section>
 

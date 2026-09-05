@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Publish {{ cycle.label }} - Weekly Planner{% endblock %}
+
+{% block content %}
+  <section class="stack" aria-labelledby="publish-heading">
+    <div class="page-heading">
+      <h1 id="publish-heading">{{ project.name }}</h1>
+      <p>{{ cycle.label }} is ready for summary publication.</p>
+    </div>
+
+    <section class="status-section" aria-labelledby="publish-status-heading">
+      <h2 id="publish-status-heading">Publish retrospective summary</h2>
+      {% if blockers %}
+        <p class="status-note">Resolve the current-cycle blockers before publishing.</p>
+        <ul class="submission-status-list" aria-label="Publication blockers">
+          {% for blocker in blockers %}
+            <li><span>{{ blocker }}</span><strong>Blocked</strong></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="status-note">Select attendees, then complete this retrospective and publish its read-only summary.</p>
+      {% endif %}
+    </section>
+
+    {% if can_publish %}
+      <form class="status-section stack compact-stack" method="post" action="{% url 'retrospective_summary_publish' project_id=project.pk cycle_id=cycle.pk %}">
+        {% csrf_token %}
+        {{ publish_form.non_field_errors }}
+        <div class="field">
+          {{ publish_form.attendees.errors }}
+          <fieldset>
+            <legend>{{ publish_form.attendees.label }}</legend>
+            {{ publish_form.attendees }}
+          </fieldset>
+        </div>
+        <button class="button" type="submit">Publish summary</button>
+      </form>
+    {% endif %}
+  </section>
+{% endblock %}
