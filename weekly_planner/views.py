@@ -194,6 +194,46 @@ def _publish_blockers_for(cycle):
     return blockers
 
 
+def _dashboard_retrospective_stage_label(cycle):
+    if cycle.voting_status == FeedbackCycle.VotingStatus.CLUSTERING:
+        return "Clustering / not yet voting"
+    if cycle.voting_status == FeedbackCycle.VotingStatus.OPEN:
+        return "Voting open"
+    if cycle.voting_status == FeedbackCycle.VotingStatus.CLOSED:
+        return "Voting closed / discussion and publish-ready"
+    return cycle.get_voting_status_display()
+
+
+def _dashboard_cycle_context(cycle):
+    if cycle is None:
+        return None
+
+    context = {
+        "pk": cycle.pk,
+        "label": cycle.label,
+        "status": cycle.status,
+        "status_label": cycle.get_status_display(),
+    }
+    if cycle.status == FeedbackCycle.Status.RETROSPECTIVE:
+        context["retrospective_stage_label"] = _dashboard_retrospective_stage_label(
+            cycle
+        )
+    return context
+
+
+def _dashboard_action_item_context(action_item, user):
+    return {
+        "pk": action_item.pk,
+        "description": action_item.description,
+        "owner_label": action_item.owner.get_username(),
+        "topic_name": action_item.topic.name,
+        "cycle_pk": action_item.cycle_id,
+        "cycle_label": action_item.cycle.label,
+        "due_date": action_item.due_date,
+        "can_owner_complete": action_item.owner_id == user.pk,
+    }
+
+
 class HomeView(TemplateView):
     """Public landing page for the retrospective workflow."""
 
@@ -257,9 +297,9 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
         elif active_cycle and active_cycle.status == FeedbackCycle.Status.RETROSPECTIVE:
             retrospective_cycle = active_cycle
 
-        context["active_cycle"] = active_cycle
-        context["collecting_cycle"] = collecting_cycle
-        context["retrospective_cycle"] = retrospective_cycle
+        context["active_cycle"] = _dashboard_cycle_context(active_cycle)
+        context["collecting_cycle"] = _dashboard_cycle_context(collecting_cycle)
+        context["retrospective_cycle"] = _dashboard_cycle_context(retrospective_cycle)
         context["has_submitted_feedback"] = has_submitted_feedback
         context["team_submission_progress"] = team_submission_progress
         context["can_reveal_feedback"] = (
@@ -276,12 +316,15 @@ class ProjectDashboardView(LoginRequiredMixin, DetailView):
             .select_related("owner", "topic", "cycle")
             .order_by("due_date", "created_at", "id")
         )
-        for action_item in open_action_items:
-            action_item.can_owner_complete = action_item.owner_id == self.request.user.pk
-        context["open_action_items"] = open_action_items
+        context["open_action_items"] = [
+            _dashboard_action_item_context(action_item, self.request.user)
+            for action_item in open_action_items
+        ]
         context["completed_cycles"] = list(
-            self.object.feedback_cycles.filter(status=FeedbackCycle.Status.COMPLETED)
-            .order_by("-opens_at", "-id")
+            _dashboard_cycle_context(cycle)
+            for cycle in self.object.feedback_cycles.filter(
+                status=FeedbackCycle.Status.COMPLETED
+            ).order_by("-opens_at", "-id")
         )
         return context
 

@@ -14,7 +14,10 @@
         <h2 id="current-cycle-heading">Current feedback cycle</h2>
         {% if active_cycle %}
           <p><strong>{{ active_cycle.label }}</strong></p>
-          <p class="status-note">{{ active_cycle.get_status_display }}</p>
+          <p class="status-note">{{ active_cycle.status_label }}</p>
+          {% if active_cycle.retrospective_stage_label %}
+            <p class="status-note">Stage: {{ active_cycle.retrospective_stage_label }}</p>
+          {% endif %}
           {% if can_reveal_feedback %}
             <form class="section-action" method="post" action="{% url 'feedback_cycle_reveal' project_id=project.pk cycle_id=active_cycle.pk %}">
               {% csrf_token %}
@@ -72,7 +75,7 @@
       <section class="status-section" aria-labelledby="retrospective-entry-heading">
         <h2 id="retrospective-entry-heading">Retrospective</h2>
         {% if retrospective_cycle %}
-          <p class="status-note">{{ retrospective_cycle.label }} is ready for the retrospective board.</p>
+          <p class="status-note">{{ retrospective_cycle.label }} is in {{ retrospective_cycle.retrospective_stage_label|lower }}.</p>
           <p class="section-action">
             <a class="button" href="{% url 'retrospective_board' project_id=project.pk cycle_id=retrospective_cycle.pk %}">
               Open retrospective board
@@ -113,13 +116,13 @@
               <li class="feedback-card">
                 <p><strong>{{ action_item.description }}</strong></p>
                 <p class="status-note">
-                  Owner: {{ action_item.owner.get_username }} |
-                  Topic: {{ action_item.topic.name }} |
-                  Cycle: {{ action_item.cycle.label }} |
+                  Owner: {{ action_item.owner_label }} |
+                  Topic: {{ action_item.topic_name }} |
+                  Cycle: {{ action_item.cycle_label }} |
                   Due: {% if action_item.due_date %}{{ action_item.due_date }}{% else %}No due date{% endif %}
                 </p>
                 {% if action_item.can_owner_complete %}
-                  <form class="section-action" method="post" action="{% url 'action_item_owner_complete' project_id=project.pk cycle_id=action_item.cycle.pk action_item_id=action_item.pk %}">
+                  <form class="section-action" method="post" action="{% url 'action_item_owner_complete' project_id=project.pk cycle_id=action_item.cycle_pk action_item_id=action_item.pk %}">
                     {% csrf_token %}
                     <button class="button secondary-button" type="submit">Mark done</button>
                   </form>
