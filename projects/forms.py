@@ -760,12 +760,21 @@ class FeedbackClusterSplitForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.cluster = cluster
         self.fields["cards"].queryset = cluster.feedback_cards.all()
+        self.fields["cards"].label_from_instance = self.card_label_from_instance
 
     def clean_name(self):
         name = self.cleaned_data["name"]
         if not name.strip():
             raise forms.ValidationError("Cluster name cannot be empty.")
         return name.strip()
+
+    @staticmethod
+    def card_label_from_instance(card):
+        if card.is_anonymous:
+            author_label = "Anonymous contributor"
+        else:
+            author_label = card.author.get_full_name().strip() or card.author.get_username()
+        return f"{card.get_category_display()} - {author_label}: {card.text}"
 
 
 class FeedbackClusterSuggestionDraftForm(forms.Form):
